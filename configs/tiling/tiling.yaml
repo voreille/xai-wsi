@@ -1,0 +1,28 @@
+resolution:
+  level_mode: "auto"
+  target_tile_mpp: 0.50
+  mpp_tolerance: 0.1
+  tile_level: -1
+  level_policy: "lower" # options: "closest", "lower", "higher", "exact"
+  correct_tile_size: true
+grid:
+  tile_size: 224
+  step_size: 224
+seg_params:
+  seg_level: -1
+  sthresh: 8
+  mthresh: 7
+  close: 4
+  use_otsu: false
+  keep_ids: "none"
+  exclude_ids: "none"
+filter_params:
+  a_t: 100
+  a_h: 16
+  max_n_holes: 8
+vis_params:
+  vis_level: -1
+  line_thickness: 250
+patch_params: # to keep CLAM nomenclature
+  use_padding: true
+  contour_fn: "four_pt"

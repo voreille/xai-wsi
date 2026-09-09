@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pandas as pd
 
+
 _TCGA_SLIDE_RE = re.compile(
     r"^(?P<case_id>TCGA-[^-]+-[^-]+)"
     r"-(?P<sample_vial>[^-]+)"
@@ -16,20 +17,14 @@ _TCGA_SLIDE_RE = re.compile(
 )
 
 
-def parse_tcga_slide_id(stem: str) -> dict[str, str | None]:
+def parse_tcga_slide_stem(stem: str) -> dict[str, str | None]:
     match = _TCGA_SLIDE_RE.match(stem)
-
     if match is None:
         raise ValueError(f"Could not parse TCGA slide filename: {stem}")
 
     data = match.groupdict()
-
     case_id = data["case_id"]
     sample_vial = data["sample_vial"]
-
-    sample_type_code = (
-        sample_vial[:2] if len(sample_vial) >= 2 and sample_vial[:2].isdigit() else None
-    )
 
     slide_barcode = (
         f"{case_id}-{sample_vial}-{data['portion']}-{data['slide_designator']}"
@@ -40,7 +35,11 @@ def parse_tcga_slide_id(stem: str) -> dict[str, str | None]:
         "slide_barcode": slide_barcode,
         "case_id": case_id,
         "sample_id": f"{case_id}-{sample_vial}",
-        "sample_type_code": sample_type_code,
+        "sample_type_code": (
+            sample_vial[:2]
+            if len(sample_vial) >= 2 and sample_vial[:2].isdigit()
+            else None
+        ),
         "vial": sample_vial[2:] or None,
         "portion": data["portion"],
         "slide_designator": data["slide_designator"],
@@ -54,19 +53,19 @@ def build_wsi_mapping(
     rglob: str = "*DX*.svs",
 ) -> pd.DataFrame:
     slides_root = Path(slides_root)
-
     rows = []
 
     for path in sorted(slides_root.rglob(rglob)):
-        metadata = parse_tcga_slide_id(path.stem)
-
         rows.append(
             {
-                **metadata,
+                **parse_tcga_slide_stem(path.stem),
                 "svs_filename": path.name,
                 "svs_relpath": str(path.relative_to(slides_root)),
             }
         )
+
+    if not rows:
+        return pd.DataFrame()
 
     return (
         pd.DataFrame(rows)
@@ -76,39 +75,21 @@ def build_wsi_mapping(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--slides-root",
-        type=Path,
-        required=True,
+    parser = argparse.ArgumentParser(
+        description="Build TCGA WSI metadata from slide filenames."
     )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        required=True,
-    )
-    parser.add_argument(
-        "--rglob",
-        default="*DX*.svs",
-    )
-
+    parser.add_argument("--slides-root", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--rglob", default="*DX*.svs")
     args = parser.parse_args()
 
-    df = build_wsi_mapping(
-        args.slides_root,
-        rglob=args.rglob,
-    )
-
-    args.output.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    df = build_wsi_mapping(args.slides_root, rglob=args.rglob)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(args.output, index=False)
 
-    print(f"Slides: {len(df)}")
-    print(f"Cases:  {df['case_id'].nunique()}")
-    print(f"Output: {args.output}")
+    print(f"Slides:  {len(df)}")
+    print(f"Cases:   {df['case_id'].nunique() if not df.empty else 0}")
+    print(f"Output:  {args.output}")
 
 
 if __name__ == "__main__":

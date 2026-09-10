@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pandas as pd
 
-
 _CPTAC_CASE_RE = re.compile(r"(C3[NL]-\d+)", re.IGNORECASE)
 
 
@@ -14,9 +13,7 @@ def extract_cptac_case_id(filename: str) -> str:
     """Extract a CPTAC case ID such as C3L-xxxxx or C3N-xxxxx."""
     match = _CPTAC_CASE_RE.search(filename)
     if match is None:
-        raise ValueError(
-            f"Could not extract CPTAC case ID from: {filename}"
-        )
+        raise ValueError(f"Could not extract CPTAC case ID from: {filename}")
     return match.group(1).upper()
 
 
@@ -35,22 +32,23 @@ def build_wsi_mapping(
     rows = []
 
     for path in sorted(slides_root.rglob(rglob)):
-        rows.append(
-            {
-                "slide_id": path.stem,
-                "case_id": extract_cptac_case_id(path.name),
-                "svs_filename": path.name,
-                "svs_relpath": str(path.relative_to(slides_root)),
-            }
-        )
+        try:
+            rows.append(
+                {
+                    "slide_id": path.stem,
+                    "case_id": extract_cptac_case_id(path.name),
+                    "svs_filename": path.name,
+                    "svs_relpath": str(path.relative_to(slides_root)),
+                }
+            )
+        except ValueError as e:
+            print(f"Warning: {e}")
 
     if not rows:
         return pd.DataFrame()
 
     return (
-        pd.DataFrame(rows)
-        .sort_values(["case_id", "slide_id"])
-        .reset_index(drop=True)
+        pd.DataFrame(rows).sort_values(["case_id", "slide_id"]).reset_index(drop=True)
     )
 
 

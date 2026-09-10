@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: xai-wsi
+Version: 0.1.0
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: torch>=2.13
+Requires-Dist: torchvision
+Requires-Dist: pillow>=10.0
+Requires-Dist: numpy>=1.26
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: tqdm>=4.66
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Dynamic: license-file
+
+# XAI for WSI

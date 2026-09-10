@@ -8,10 +8,26 @@ import pandas as pd
 from .genesets import filter_gene_sets
 
 
+def fit_gene_zscore_stats(expression: pd.DataFrame) -> pd.DataFrame:
+    """Fit per-gene mean/std across samples.
+
+    expression: gene_symbol x sample
+    """
+    stats = pd.DataFrame(
+        {
+            "mean": expression.mean(axis=1),
+            "std": expression.std(axis=1, ddof=0),
+        }
+    )
+    stats["std"] = stats["std"].replace(0, np.nan)
+    return stats
+
+
 def score_mean_z(
     expression: pd.DataFrame,
     gene_sets: Mapping[str, set[str]],
     *,
+    zscore_stats: pd.DataFrame | None = None,
     min_size: int = 5,
 ) -> pd.DataFrame:
     """Score gene sets by mean gene-wise z-score.
@@ -22,24 +38,32 @@ def score_mean_z(
         gene_symbol x sample matrix.
     gene_sets:
         Mapping from gene-set name to gene symbols.
+    zscore_stats:
+        Optional DataFrame indexed by gene_symbol with columns
+        ["mean", "std"]. If None, statistics are fitted from expression.
 
     Returns
     -------
     sample x pathway score matrix.
     """
+    if zscore_stats is None:
+        zscore_stats = fit_gene_zscore_stats(expression)
+
+    shared = expression.index.intersection(zscore_stats.index)
+
+    expression = expression.loc[shared]
+    stats = zscore_stats.loc[shared]
+
+    z = expression.sub(stats["mean"], axis=0).div(stats["std"], axis=0)
+
     gene_sets = filter_gene_sets(
         gene_sets,
-        set(expression.index),
+        set(z.index),
         min_size=min_size,
     )
 
-    mean = expression.mean(axis=1)
-    std = expression.std(axis=1, ddof=0).replace(0, np.nan)
-    z = expression.sub(mean, axis=0).div(std, axis=0)
-
     scores = {
-        name: z.loc[list(genes)].mean(axis=0)
-        for name, genes in gene_sets.items()
+        name: z.loc[sorted(genes)].mean(axis=0) for name, genes in gene_sets.items()
     }
 
     out = pd.DataFrame(scores)
@@ -91,8 +115,7 @@ def score_ssgsea(
     required = {"Name", "Term", "NES"}
     if not required.issubset(res2d.columns):
         raise RuntimeError(
-            "Unexpected gseapy ssGSEA result columns: "
-            f"{list(res2d.columns)}"
+            f"Unexpected gseapy ssGSEA result columns: {list(res2d.columns)}"
         )
 
     out = res2d.pivot(

@@ -1,5 +1,0 @@
-# Suggested first run: 10k natural images, DINOv2-S/14, 128-D projected representation.
-# Commands are documented in README; this file is intentionally shell-friendly notes.
-N_IMAGES=10000
-EMBED_DIM=128
-SEED=0

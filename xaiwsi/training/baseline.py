@@ -178,7 +178,7 @@ class EmbeddingDataset(Dataset):
         slide_id = row["slide_id"]
         sample_id = row["sample_id"]
 
-        embeddings, coords, _ = self.embedding_store.load(slide_id)
+        embeddings, coords, attrs = self.embedding_store.load(slide_id)
 
         embeddings = torch.from_numpy(np.asarray(embeddings)).float()
 
@@ -430,19 +430,19 @@ def main():
         train_dataset,
         batch_size=1,
         shuffle=True,
-        num_workers=8,
+        # num_workers=1,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=1,
         shuffle=False,
-        num_workers=8,
+        # num_workers=1,
     )
     cptac_loader = DataLoader(
         cptac_dataset,
         batch_size=1,
         shuffle=False,
-        num_workers=8,
+        # num_workers=8,
     )
 
     # ------------------------------------------------------------

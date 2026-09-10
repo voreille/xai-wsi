@@ -1,0 +1,60 @@
+# Same experiment, but using Lightning's CSV logger instead of W&B.
+seed_everything: 42
+
+model:
+  predictor:
+    class_path: xaiwsi.models.pathway.TileMLPMean
+    init_args:
+      input_dim: 1536
+      hidden_dim: 128
+      output_dim: 50
+      dropout: 0.0
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  log_per_pathway_metrics: false
+  top_k_to_print: 10
+
+data:
+  tcga_rna_dir: /home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/rna
+  cptac_rna_dir: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/rna
+  tcga_embedding_dir: /home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/wsi-embeddings/h-optimus-1
+  cptac_embedding_dir: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/wsi-embeddings/h-optimus-1
+  tcga_wsi_metadata: /home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/metadata/wsi_slides.csv
+  cptac_wsi_metadata: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/metadata/wsi_slides.csv
+  hallmark_gmt: /home/valentin/workspaces/xai-wsi/data/external/msigdb/h.all.v2026.1.Hs.symbols.gmt
+  val_fraction: 0.2
+  split_seed: 42
+  batch_size: 1
+  num_workers: 8
+  pin_memory: true
+
+trainer:
+  accelerator: auto
+  devices: 1
+  max_epochs: 30
+  precision: 32-true
+  default_root_dir: /home/valentin/workspaces/xai-wsi/runs/pathways
+
+  logger:
+    class_path: lightning.pytorch.loggers.CSVLogger
+    init_args:
+      save_dir: /home/valentin/workspaces/xai-wsi/runs/pathways
+      name: hallmark-tile-mlp-mean
+
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: val/median_spearman
+        mode: max
+        save_top_k: 1
+        save_last: true
+        filename: "epoch={epoch:02d}-step={step}"
+        auto_insert_metric_name: false
+
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: val/median_spearman
+        mode: max
+        patience: 5
+
+  log_every_n_steps: 20

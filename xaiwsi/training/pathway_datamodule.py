@@ -26,6 +26,8 @@ class PathwayDataModule(L.LightningDataModule):
         cptac_rna_dir: str,
         tcga_embedding_dir: str,
         cptac_embedding_dir: str,
+        tcga_slides_root_dir: str,
+        cptac_slides_root_dir: str,
         tcga_wsi_metadata: str,
         cptac_wsi_metadata: str,
         hallmark_gmt: str,
@@ -40,6 +42,8 @@ class PathwayDataModule(L.LightningDataModule):
         self.cptac_rna_dir = Path(cptac_rna_dir)
         self.tcga_embedding_dir = Path(tcga_embedding_dir)
         self.cptac_embedding_dir = Path(cptac_embedding_dir)
+        self.tcga_slides_root_dir = Path(tcga_slides_root_dir)
+        self.cptac_slides_root_dir = Path(cptac_slides_root_dir)
         self.tcga_wsi_metadata = Path(tcga_wsi_metadata)
         self.cptac_wsi_metadata = Path(cptac_wsi_metadata)
         self.hallmark_gmt = Path(hallmark_gmt)

@@ -21,7 +21,7 @@ class PathwayTraining(L.LightningModule):
         top_k_to_print: int = 10,
     ):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["predictor"])
 
         self.predictor = predictor
         self.lr = lr

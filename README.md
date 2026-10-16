@@ -14,6 +14,8 @@ The current pipeline supports:
 
 The main use case is to study whether morphology encoded by pathology foundation models predicts RNA-derived biological programs, while retaining tile-level interpretability.
 
+The longer-term goal is a multimodal (WSI + bulk RNA) model for LUAD that is interpretable at the tile and concept level, then possibly extending to other TCGA/CPTAC cancer types. See [Research roadmap](#research-roadmap).
+
 ---
 
 ## Repository layout
@@ -719,13 +721,43 @@ Spearman is especially useful for CPTAC external evaluation because the model ma
 
 ---
 
-# Planned extensions
+# Research roadmap
 
-- Patient-level aggregation over multiple WSIs.
+Each stage depends on the previous one producing a usable result. Stages 3 and 4 only make sense if the LUAD multimodal model from stage 2 works well.
+
+## Stage 1: WSI → RNA programs (current)
+
+- Frozen-VFM WSI baselines predicting the 50 Hallmarks (done).
+- Add the **Tavernari et al. (2021)** LUAD signature as a target. Tavernari et al., *Nongenetic evolution drives lung adenocarcinoma spatial heterogeneity and progression*, Cancer Discovery 2021 ([PMID 33563664](https://pubmed.ncbi.nlm.nih.gov/33563664/)), derived a transcriptional signature that tracks the histological pattern progression (lepidic → acinar/papillary → solid/micropapillary). Because the signature is tied to growth pattern, it is a natural target for a morphology model, and tile maps can be checked against pattern annotations.
+  - Loader and scoring CLI already exist (`xaiwsi.rna.pathways.tavernari`, `--gene-set-type tavernari`). The gene list must come from the paper's supplement as a `.gmt`/`.json` file under `data/external/tavernari/`, with the supplement version recorded.
+- Patient-level aggregation over multiple WSIs (needed before trusting CPTAC numbers).
+
+## Stage 2: RNA encoders and WSI + RNA fusion
+
+- **BulkFormer** as a frozen bulk-RNA foundation model, mirroring how tile embeddings are used:
+  - precompute and cache one embedding per RNA sample (like `wsi-embeddings/`), under `data/processed/<cohort>/rna-embeddings/bulkformer/`;
+  - check BulkFormer's expected gene identifiers and input normalization against our `genes.csv` / TPM outputs before embedding.
+- Unimodal baselines first (WSI-only, RNA-only), then fusion (early concat, late fusion, cross-attention between tiles and the RNA embedding).
+- **Target leakage.** When RNA is a model input, targets computed from that same RNA (Hallmarks, Tavernari score) are no longer valid prediction targets. The task becomes reconstructing a function of the input. Multimodal experiments need targets independent of the RNA input, for example:
+  - histological growth pattern / IASLC grade, stage, survival;
+  - cross-modal alignment (contrastive WSI ↔ RNA), evaluated by retrieval.
+- **Querying the Tavernari signature.** With a shared or aligned WSI–RNA space, the signature can be used as a query rather than a target: score it on RNA, then find which tiles, latent directions or fused features align with it, and test whether they correspond to the expected growth patterns.
+
+## Stage 3: Other cancer types (conditional on stage 2)
+
+- Download additional TCGA/CPTAC cohorts (RNA + diagnostic WSIs) with the same GDC/STAR pipeline.
+- Requires generalizing code that is currently LUAD-specific: cohort names and paths in configs, the TCGA/CPTAC preprocessing entry points, and any hard-coded output dimension (50 Hallmarks).
+- Cancer-specific signatures (like Tavernari for LUAD) will not transfer; Hallmarks remain the cross-cancer common target.
+
+## Stage 4: Explainability with sparse autoencoders
+
+- Train SAEs on frozen representations: VFM tile embeddings, BulkFormer embeddings, then the fused multimodal representation.
+- Interpret SAE concepts by association with Hallmarks, the Tavernari signature and histological patterns.
+- Spatial analysis of pathway- and pattern-associated concepts on the WSI.
+- Compare with the built-in tile-level explanations (scores, gates, contributions) and with pathway-specific relevance weights / ABMIL.
+
+## Other open items
+
 - Linear vs nonlinear pathway decoders.
 - Uniform mean vs sigmoid-gated mean vs ABMIL.
-- Pathway-specific relevance weights.
-- SAE-based pathway interpretation.
-- Spatial analysis of pathway-associated SAE concepts.
-- Tavernari lepidic-to-solid transcriptional signature scoring.
 - Additional RNA/pathway targets and robustness analyses.

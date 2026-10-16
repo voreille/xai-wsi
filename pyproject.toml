@@ -15,13 +15,31 @@ dependencies = [
   "numpy>=1.26",
   "matplotlib>=3.8",
   "tqdm>=4.66",
+  "pandas",
+  "pyarrow",
+  "scipy",
+  "pyyaml",
+  "requests",
+  "click",
+  "rnanorm",
+  "gseapy",
+  "openslide-python",
+  "openslide-bin",
+  "lightning",
+  "jsonargparse[signatures]",
+  "wandb",
+  "wsitools[embed]",  # ../wsi-tools; [embed] for wsi-embed (timm)
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
+[tool.uv.sources]
+wsitools = { path = "../wsi-tools", editable = true }
+
 [tool.setuptools.packages.find]
-where = ["xaiwsi"]
+where = ["."]
+include = ["xaiwsi*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

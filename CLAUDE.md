@@ -31,12 +31,11 @@ What this means for code written now:
 
 ## Environment
 
-- Python >= 3.12, run everything through `uv run ...`.
-- `pyproject.toml` lists only a minimal dependency set. The code also needs `lightning`,
-  `jsonargparse[signatures]`, `wandb`, `pandas`, `pyarrow`, `scipy`, `rnanorm`, `gseapy`,
-  `openslide-python`, and `wsitools` (internal package providing `wsi-tile`,
-  `wsi-embed` and `wsitools.storage` embedding stores). If an import fails, the dependency
-  is probably missing from `pyproject.toml`; it is not a code bug.
+- Python >= 3.12. Set up with `uv sync`, run everything through `uv run ...`.
+- `wsitools` (provides `wsi-tile`, `wsi-embed` and the `wsitools.storage` embedding
+  stores) is a sibling repo installed editable from `../wsi-tools` via
+  `[tool.uv.sources]`. That checkout must exist next to this repo. Changes to
+  wsitools belong in that repo.
 - There is no test suite (`tests/` is referenced in pyproject but does not exist).
 - `data/`, `runs/`, `outputs/` are gitignored and host-specific. Configs and scripts use
   absolute paths under `/home/valentin/workspaces/xai-wsi` and NAS mounts

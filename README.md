@@ -62,19 +62,16 @@ xai-wsi/
 
 ## Installation
 
-The project is designed to be used from its `uv` environment.
-
-Typical dependencies used by the current pipeline include:
+The project uses `uv`. It depends on [wsi-tools](https://github.com/voreille/wsi-tools) (`wsitools` package), installed editable from a sibling checkout:
 
 ```bash
-uv add pandas pyarrow requests tqdm rnanorm scipy
-uv add lightning "jsonargparse[signatures]"
-uv add wandb
-uv add gseapy
-uv add openslide-python
+git clone git@github.com:voreille/wsi-tools.git ../wsi-tools
+uv sync
 ```
 
-The system OpenSlide library may also need to be installed separately depending on the machine.
+All dependencies are declared in `pyproject.toml` and pinned in `uv.lock`.
+
+OpenSlide binaries come from `openslide-bin`, so no system OpenSlide install is needed.
 
 ---
 

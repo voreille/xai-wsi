@@ -36,6 +36,14 @@ dev = ["pytest>=8.0"]
 
 [tool.uv.sources]
 wsitools = { path = "../wsi-tools", editable = true }
+# PyPI torch is built for CUDA 13; the GPU servers' driver supports CUDA <= 12.9.
+torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu126", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
 
 [tool.setuptools.packages.find]
 where = ["."]

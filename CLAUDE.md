@@ -36,6 +36,10 @@ What this means for code written now:
   stores) is a sibling repo installed editable from `../wsi-tools` via
   `[tool.uv.sources]`. That checkout must exist next to this repo. Changes to
   wsitools belong in that repo.
+- On Linux, torch/torchvision come from the PyTorch `cu126` index (`[tool.uv.index]`),
+  because the GPU servers' driver supports CUDA <= 12.9 and PyPI torch is built for
+  CUDA 13. Don't remove this until the driver is upgraded. Check
+  `torch.cuda.is_available()` after changing torch versions.
 - There is no test suite (`tests/` is referenced in pyproject but does not exist).
 - `data/`, `runs/`, `outputs/` are gitignored and host-specific. Configs and scripts use
   absolute paths under `/home/valentin/workspaces/xai-wsi` and NAS mounts

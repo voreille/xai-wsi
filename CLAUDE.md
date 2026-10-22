@@ -95,7 +95,9 @@ uv run python -m xaiwsi.visualization.pathways --config ... --checkpoint ... \
   on these keys. Invariant: `sum_i tile_weights[i] * tile_scores[i, k] == pred[k]`.
 - `RunSaveConfigCallback` writes the resolved `config.yaml` to
   `<save_dir>/<logger name>/<version>/`, next to `checkpoints/`. Downstream tools
-  rebuild model and data paths from it, so keep it complete. Older run configs may lack
+  rebuild model and data paths from it, so keep it complete. With W&B, it pins the run
+  id so `test` reuses the run, is only written once (non-fit stages keep the fit-time
+  file), and stores `run_dir`/`config_path`/`host` in the W&B run config. Older run configs may lack
   `*_slides_root_dir`, so visualization accepts `--slides-root-dir` / `--embedding-dir`
   overrides.
 - Model selection metric: `val/median_spearman` (mode max).

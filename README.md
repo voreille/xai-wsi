@@ -536,6 +536,11 @@ runs/pathways/
 
 The resolved LightningCLI config is saved next to the checkpoints so downstream analysis can reconstruct the model and dataset paths from the run itself.
 
+With `WandbLogger`, `<run-id>` is the W&B run id (the last part of the run URL), and:
+
+- the saved `config.yaml` pins that id (`trainer.logger.init_args.id`), so `test` with it logs CPTAC metrics into the same W&B run and writes nothing new under `runs/`;
+- the W&B run config has `run_dir`, `config_path` and `host`; add them as columns in the W&B runs table to copy the local paths of a run.
+
 ---
 
 # Tile-level pathway visualization

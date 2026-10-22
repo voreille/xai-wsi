@@ -28,7 +28,10 @@ class SlideRNADataset(Dataset):
     ):
         self.embedding_store = embedding_store
         self.pairs = pairs.reset_index(drop=True)
-        self.rna = rna_embeddings.loc[self.pairs["sample_id"]].to_numpy(np.float32)
+        # copy=True: with pandas copy-on-write, to_numpy() can return a read-only view.
+        self.rna = rna_embeddings.loc[self.pairs["sample_id"]].to_numpy(
+            np.float32, copy=True
+        )
 
     def __len__(self) -> int:
         return len(self.pairs)

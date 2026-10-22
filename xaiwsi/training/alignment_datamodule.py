@@ -7,7 +7,12 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from wsitools.storage.factory import build_embedding_store_from_dir
 
-from xaiwsi.data.alignment import SlideRNADataset, collate_bags, load_rna_embeddings
+from xaiwsi.data.alignment import (
+    SlideRNADataset,
+    cache_slide_tiles,
+    collate_bags,
+    load_rna_embeddings,
+)
 from xaiwsi.data.pathway import build_case_pairs, split_cases
 
 
@@ -19,6 +24,10 @@ class AlignmentDataModule(L.LightningDataModule):
     are standardized with TCGA-train statistics. With ``rna_center_per_cohort``, CPTAC
     is instead centered on its own mean (label-free, transductive), which targets the
     TCGA -> CPTAC offset shift seen in stage 2b.
+
+    With ``cache_tiles`` (default), each split's slides are decoded once into RAM
+    (``cache_dtype``, ``cache_workers`` processes) when its dataloader is first
+    requested; the loaders then run in the main process (``num_workers`` is ignored).
     """
 
     def __init__(
@@ -41,6 +50,9 @@ class AlignmentDataModule(L.LightningDataModule):
         eval_batch_size: int = 32,
         num_workers: int = 8,
         pin_memory: bool = True,
+        cache_tiles: bool = True,
+        cache_dtype: str = "float16",
+        cache_workers: int = 16,
     ):
         super().__init__()
         self.tcga_rna_dir = Path(tcga_rna_dir)
@@ -62,6 +74,9 @@ class AlignmentDataModule(L.LightningDataModule):
         self.eval_batch_size = eval_batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
+        self.cache_tiles = cache_tiles
+        self.cache_dtype = cache_dtype
+        self.cache_workers = cache_workers
 
         self.rna_dim: int | None = None
         self._is_setup = False
@@ -108,6 +123,11 @@ class AlignmentDataModule(L.LightningDataModule):
         self.train_dataset = SlideRNADataset(tcga_store, train_pairs, tcga_rna)
         self.val_dataset = SlideRNADataset(tcga_store, val_pairs, tcga_rna)
         self.test_dataset = SlideRNADataset(cptac_store, cptac_pairs, cptac_rna)
+        self._embedding_dirs = {
+            id(self.train_dataset): self.tcga_embedding_dir,
+            id(self.val_dataset): self.tcga_embedding_dir,
+            id(self.test_dataset): self.cptac_embedding_dir,
+        }
         print(
             f"Alignment: {len(self.train_dataset)} TCGA train, "
             f"{len(self.val_dataset)} TCGA val, {len(self.test_dataset)} CPTAC test "
@@ -116,6 +136,16 @@ class AlignmentDataModule(L.LightningDataModule):
         self._is_setup = True
 
     def _loader(self, dataset, *, train: bool) -> DataLoader:
+        num_workers = self.num_workers
+        if self.cache_tiles:
+            if dataset.tile_cache is None:
+                dataset.tile_cache = cache_slide_tiles(
+                    self._embedding_dirs[id(dataset)],
+                    dataset.pairs["slide_id"].astype(str).tolist(),
+                    dtype=self.cache_dtype,
+                    workers=self.cache_workers,
+                )
+            num_workers = 0
         return DataLoader(
             dataset,
             batch_size=self.batch_size if train else self.eval_batch_size,
@@ -123,9 +153,9 @@ class AlignmentDataModule(L.LightningDataModule):
             # Keep the number of in-batch negatives fixed.
             drop_last=train,
             collate_fn=collate_bags,
-            num_workers=self.num_workers,
+            num_workers=num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.num_workers > 0,
+            persistent_workers=num_workers > 0,
         )
 
     def train_dataloader(self) -> DataLoader:

@@ -1,12 +1,55 @@
 from __future__ import annotations
 
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
+from tqdm import tqdm
+from wsitools.storage.factory import build_embedding_store_from_dir
 from wsitools.storage.interfaces import EmbeddingStore
+
+_worker_store: EmbeddingStore | None = None
+
+
+def _init_cache_worker(embedding_dir: str) -> None:
+    global _worker_store
+    _worker_store = build_embedding_store_from_dir(root_dir=embedding_dir)
+
+
+def _load_tiles(slide_id: str, dtype: str) -> tuple[str, np.ndarray]:
+    tiles, _, _ = _worker_store.load(slide_id)
+    return slide_id, np.asarray(tiles).astype(dtype, copy=False)
+
+
+def cache_slide_tiles(
+    embedding_dir: str | Path,
+    slide_ids: list[str],
+    *,
+    dtype: str = "float16",
+    workers: int = 16,
+) -> dict[str, torch.Tensor]:
+    """Decode whole-slide tile embeddings once into RAM, in parallel processes.
+
+    The h5 stores are LZF-compressed in small chunks, so reading a slide costs about
+    1-10 s of CPU every time. Caching once per run makes later epochs GPU-bound.
+    """
+    slide_ids = list(dict.fromkeys(slide_ids))
+    cache: dict[str, torch.Tensor] = {}
+    with ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=mp.get_context("spawn"),
+        initializer=_init_cache_worker,
+        initargs=(str(embedding_dir),),
+    ) as pool:
+        futures = [pool.submit(_load_tiles, slide_id, dtype) for slide_id in slide_ids]
+        for future in tqdm(futures, desc=f"caching {Path(embedding_dir).name} tiles"):
+            slide_id, tiles = future.result()
+            cache[slide_id] = torch.from_numpy(tiles)
+    return cache
 
 
 def load_rna_embeddings(path: str | Path, column_regex: str = r"^emb_") -> pd.DataFrame:
@@ -32,18 +75,26 @@ class SlideRNADataset(Dataset):
         self.rna = rna_embeddings.loc[self.pairs["sample_id"]].to_numpy(
             np.float32, copy=True
         )
+        # Optional slide_id -> tiles cache (see cache_slide_tiles); tiles keep the
+        # cache dtype, and the slide encoder casts them on the GPU.
+        self.tile_cache: dict[str, torch.Tensor] | None = None
 
     def __len__(self) -> int:
         return len(self.pairs)
 
     def __getitem__(self, idx: int) -> dict[str, object]:
         row = self.pairs.iloc[idx]
-        tiles, _, _ = self.embedding_store.load(str(row["slide_id"]))
+        slide_id = str(row["slide_id"])
+        if self.tile_cache is not None:
+            tiles = self.tile_cache[slide_id]
+        else:
+            loaded, _, _ = self.embedding_store.load(slide_id)
+            tiles = torch.from_numpy(np.asarray(loaded)).float()
         return {
             "case_id": str(row["case_id"]),
-            "slide_id": str(row["slide_id"]),
+            "slide_id": slide_id,
             "sample_id": str(row["sample_id"]),
-            "tiles": torch.from_numpy(np.asarray(tiles)).float(),
+            "tiles": tiles,
             "rna": torch.from_numpy(self.rna[idx]),
         }
 

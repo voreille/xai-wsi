@@ -643,10 +643,15 @@ uv run python -m xaiwsi.training.alignment_cli test \
   - `wsi2rna_*` and `rna2wsi_*`: recall@1/5/10, median rank and MRR, plus their averages
     `mean_*` and the chance levels `chance_r{k}`;
   - model selection uses `val/mean_mrr` (max).
-- **Data loading:** a whole-slide bag is about 95 MB in fp32, and DataLoader workers pass
-  tensors back through `/dev/shm`. In containers with a small `/dev/shm` (Docker's
-  default is 64 MB), use `--data.num_workers 0` or raise `--shm-size`. Otherwise loading
-  stalls.
+- **Data loading:** with `data.cache_tiles: true` (the default), each split's slides are
+  decoded once into RAM as fp16 by `cache_workers` processes. That takes about 45 s for
+  TCGA-train and about 26 GB of RAM for TCGA. After that, epochs are GPU-bound (4 epochs
+  in about 80 s in total).
+  - The current h5 stores are LZF-compressed in 64×96 chunks: 1.00× compression, and
+    1–12 s of CPU per slide read.
+  - Without the cache (`cache_tiles: false`), DataLoader workers pass about 95 MB bags
+    through `/dev/shm`. In containers with a small `/dev/shm` (Docker's default is
+    64 MB), loading stalls.
 
 # Run artifacts and logging
 

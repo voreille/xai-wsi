@@ -52,8 +52,12 @@ data:
   # Whole-slide bags as a list (no padding / tile sampling): 64 in-batch negatives.
   batch_size: 64
   eval_batch_size: 32
-  num_workers: 16
+  num_workers: 16  # ignored when cache_tiles is true
   pin_memory: true
+  # Decode slides once into RAM (fp16); h5 reads are CPU-bound (LZF, small chunks).
+  cache_tiles: true
+  cache_dtype: float16
+  cache_workers: 16
 trainer:
   accelerator: auto
   devices: 1

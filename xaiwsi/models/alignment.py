@@ -42,7 +42,8 @@ class SlideEncoder(nn.Module, ABC):
     def forward(self, tiles: Bags) -> dict[str, torch.Tensor | list[torch.Tensor]]:
         bags = list(tiles.unbind(0)) if isinstance(tiles, torch.Tensor) else tiles
         outputs = [
-            self.encode_bag(_drop_tiles(bag, self.tile_dropout, self.training))
+            # .float(): tiles may be cached in fp16; autocast still applies below.
+            self.encode_bag(_drop_tiles(bag.float(), self.tile_dropout, self.training))
             for bag in bags
         ]
         result: dict[str, torch.Tensor | list[torch.Tensor]] = {

@@ -1,0 +1,87 @@
+# Stage 2c: WSI <-> RNA contrastive alignment. TCGA train/val -> CPTAC external test.
+# Same pairs and split as pathway_baseline.yaml (val_fraction 0.2, split_seed 42).
+#
+# Fit:
+#   CUDA_VISIBLE_DEVICES=0 python -m xaiwsi.training.alignment_cli fit \
+#       --config configs/training/alignment_baseline.yaml
+#
+# Test best checkpoint:
+#   python -m xaiwsi.training.alignment_cli test \
+#       --config <run-dir>/config.yaml \
+#       --ckpt_path <run-dir>/checkpoints/<best>.ckpt
+seed_everything: 42
+model:
+  aligner:
+    class_path: xaiwsi.models.alignment.ContrastiveAligner
+    init_args:
+      slide_encoder:
+        # MeanSlideEncoder (same args) is the uniform-weight baseline.
+        class_path: xaiwsi.models.alignment.GatedSlideEncoder
+        init_args:
+          input_dim: 1536
+          hidden_dim: 512
+          embed_dim: 256
+          dropout: 0.1
+          tile_dropout: 0.0
+      rna_encoder:
+        class_path: xaiwsi.models.alignment.MLPProjector
+        init_args:
+          input_dim: 640  # BulkFormer-147M encoder dims (stat_* columns dropped)
+          hidden_dim: 512
+          embed_dim: 256
+          dropout: 0.1
+      init_temperature: 0.07
+      learn_temperature: true
+  lr: 1.0e-4
+  weight_decay: 1.0e-2
+data:
+  tcga_rna_dir: /home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/rna
+  cptac_rna_dir: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/rna
+  tcga_rna_embeddings: /home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/rna-embeddings/bulkformer/147M/embeddings.parquet
+  cptac_rna_embeddings: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/rna-embeddings/bulkformer/147M/embeddings.parquet
+  tcga_embedding_dir: /home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/wsi-embeddings/h-optimus-1
+  cptac_embedding_dir: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/wsi-embeddings/h-optimus-1
+  tcga_wsi_metadata: /home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/metadata/wsi_slides.csv
+  cptac_wsi_metadata: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/metadata/wsi_slides.csv
+  tcga_slides_root_dir: /mnt/nas7/data/TCGA_Lung_svs
+  cptac_slides_root_dir: /mnt/nas6/data/CPTAC/CPTAC-LUAD_v12/LUAD
+  rna_column_regex: ^emb_
+  rna_center_per_cohort: false
+  val_fraction: 0.2
+  split_seed: 42
+  # Whole-slide bags as a list (no padding / tile sampling): 64 in-batch negatives.
+  batch_size: 64
+  eval_batch_size: 32
+  num_workers: 16
+  pin_memory: true
+trainer:
+  accelerator: auto
+  devices: 1
+  max_epochs: 200
+  precision: bf16-mixed
+  default_root_dir: /home/valentin/workspaces/xai-wsi/runs/alignment
+  logger:
+    class_path: lightning.pytorch.loggers.WandbLogger
+    init_args:
+      project: xai-wsi
+      name: align-gated-bulkformer
+      save_dir: /home/valentin/workspaces/xai-wsi/runs/alignment
+      log_model: false
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: val/mean_mrr
+        mode: max
+        save_top_k: 1
+        save_last: true
+        filename: "epoch={epoch:03d}-step={step}"
+        auto_insert_metric_name: false
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: val/mean_mrr
+        mode: max
+        patience: 30
+        min_delta: 0.0
+  log_every_n_steps: 1
+  enable_progress_bar: true
+  enable_model_summary: true

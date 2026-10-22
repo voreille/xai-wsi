@@ -39,7 +39,11 @@ class RunSaveConfigCallback(SaveConfigCallback):
             if version is None:
                 raise RuntimeError("Logger has no run/version id after initialization.")
 
-            run_dir = Path(save_dir) / str(name) / str(version)
+            if isinstance(logger, WandbLogger):
+                run_dir = Path(save_dir) / str(name) / str(version)
+            else:
+                # CSV/TensorBoard: checkpoints go to <save_dir>/<name>/version_<N>/.
+                run_dir = Path(logger.log_dir)
 
         config_path = run_dir / self.config_filename
 

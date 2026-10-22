@@ -119,6 +119,7 @@ Chance level is recall@k = k / n_candidates and median rank = n / 2.
 
 | Date | W&B id | Slide encoder | RNA encoder | B | TCGA-val R@1 / R@5 / R@10 (WSI→RNA) | TCGA-val median rank | CPTAC R@1 / R@5 / R@10 | CPTAC median rank | Notes |
 |---|---|---|---|---|---|---|---|---|---|
+| 2026-10-22 | smoke (CSV) | Gated, 512→256 | BulkFormer-147M → MLP 256 | 64 | 0.126 / 0.284 / 0.453 | 12 | 0.033 / 0.089 / 0.207 | 41 | **Pipeline check only:** 2 epochs (10 steps), not tuned. Chance: val R@5 0.053 (median rank 47.5), CPTAC R@5 0.023 (median rank 106). Peak GPU 15 GB. About 8 min/epoch with `num_workers 0` (I/O-bound) |
 
 ### 2d. Downstream probes on frozen encoders
 

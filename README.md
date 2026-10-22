@@ -611,6 +611,43 @@ CPTAC is intended as an **external test cohort**. Architecture and hyperparamete
 
 ---
 
+# WSI ↔ RNA alignment training (stage 2c)
+
+The slide encoder (frozen H-optimus-1 tiles, trained with project-then-pool) and an MLP
+on frozen BulkFormer embeddings are aligned with a symmetric InfoNCE (CLIP) loss. It
+uses the same TCGA pairs and split as the Hallmark models, with CPTAC as the external
+test.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 uv run python -m xaiwsi.training.alignment_cli fit \
+    --config configs/training/alignment_baseline.yaml
+
+uv run python -m xaiwsi.training.alignment_cli test \
+    --config runs/alignment/xai-wsi/<run-id>/config.yaml \
+    --ckpt_path runs/alignment/xai-wsi/<run-id>/checkpoints/<best>.ckpt
+```
+
+- **Batches** are lists of whole-slide bags (`collate_bags`): no padding and no tile
+  sampling. Each bag is pooled separately, and the B slide embeddings are stacked, so B
+  is the number of in-batch negatives. Training uses `drop_last` so B stays fixed.
+- **Models** (`xaiwsi/models/alignment.py`):
+  - `GatedSlideEncoder` (sigmoid gates normalized to sum to one, as in
+    `TileMLPGatedMean`) and `MeanSlideEncoder` (uniform weights), wrapped in
+    `ContrastiveAligner` with an `MLPProjector` for RNA;
+  - both encoders return `tile_embeddings` `h_i` in the shared space, with
+    `embedding = Σ_i tile_weights[i] · h_i`.
+- **RNA features** are standardized with TCGA-train statistics.
+  `data.rna_center_per_cohort: true` centers CPTAC on its own mean instead. This is
+  label-free but transductive, and targets the cohort offset seen in stage 2b.
+- **Metrics** (`xaiwsi/metrics/retrieval.py`), computed over the whole split:
+  - `wsi2rna_*` and `rna2wsi_*`: recall@1/5/10, median rank and MRR, plus their averages
+    `mean_*` and the chance levels `chance_r{k}`;
+  - model selection uses `val/mean_mrr` (max).
+- **Data loading:** a whole-slide bag is about 95 MB in fp32, and DataLoader workers pass
+  tensors back through `/dev/shm`. In containers with a small `/dev/shm` (Docker's
+  default is 64 MB), use `--data.num_workers 0` or raise `--shm-size`. Otherwise loading
+  stalls.
+
 # Run artifacts and logging
 
 A run is organized as:

@@ -856,11 +856,15 @@ bootstrap 95% CIs over patients (CPTAC has only 54 OS events).
 - Measure the TCGA → CPTAC shift in RNA space (cohort classifier AUC, UMAP).
 
 ### 2c. Slide encoder + WSI ↔ RNA alignment
-- **Slide encoder:**
-  - frozen H-optimus-1 tiles go through a trainable pooling network (gated attention,
-    like `TileMLPGatedMean`, with no BatchNorm), then a projection;
-  - this yields one slide embedding, and the attention weights give tile-level maps.
-- **RNA side:** frozen BulkFormer embedding, then an MLP projection.
+- **Slide encoder, project then pool:**
+  - each frozen H-optimus-1 tile is mapped into the shared space, `h_i = proj(tile_i)`;
+  - gated-attention pooling (like `TileMLPGatedMean`, with no BatchNorm) then gives
+    `slide = Σ_i w_i h_i`;
+  - the attention weights give tile-level maps.
+  - Projecting before pooling puts every tile token in the same space as the slide and
+    RNA embeddings, which the multimodal SAE in stage 4 needs.
+- **RNA side:** frozen BulkFormer embedding, then an MLP projection. Later the same
+  project-then-pool is applied to gene tokens: `g_j = proj(gene_j)`, `rna = mean_j g_j`.
 - **Loss:** symmetric InfoNCE with a learnable temperature over B patients per step.
 - **Batching:** each batch is a list of whole-slide bags (all tiles, no padding or tile
   sampling). Each bag is pooled separately and the B slide embeddings are stacked. Slides
@@ -882,6 +886,17 @@ bootstrap 95% CIs over patients (CPTAC has only 54 OS events).
     encoder;
   - optional: a multitask variant, alignment loss plus an auxiliary Hallmark head on the
     WSI branch. It stays leakage-free because predictions use only the WSI.
+- **Hallmarks via RNA structure:** the 50 Hallmarks are low-rank. On TCGA-LUAD, PC1
+  explains 48% of the variance, 5 PCs reach 80% and the participation ratio is 3.7. So
+  the bottleneck is likely morphological visibility, not the number of targets. Compare:
+  - **low-rank heads without BulkFormer:** predict the top-k Hallmark PCs (k = 5–10, fit
+    on TCGA-train) and reconstruct, or use reduced-rank regression;
+  - **frozen-decoder head:** fit g, BulkFormer → Hallmarks, on RNA and freeze it; the
+    slide encoder outputs z in BulkFormer space and the loss is on g(z). Plain MSE to the
+    full BulkFormer embedding is not recommended, because most of it is not visible in
+    morphology;
+  - **alignment then probe** (above).
+  - The BulkFormer → Hallmark probe from 2b is the ceiling of any BulkFormer route.
 - **Overall survival:**
   - Cox models on fixed vectors (full batches, no tile batching), with three arms: WSI
     only (slide embedding), RNA only (BulkFormer), and fusion (concatenation, late
@@ -908,12 +923,51 @@ bootstrap 95% CIs over patients (CPTAC has only 54 OS events).
 - Requires generalizing code that is currently LUAD-specific: cohort names and paths in configs, the TCGA/CPTAC preprocessing entry points, and any hard-coded output dimension (50 Hallmarks).
 - Cancer-specific signatures (like Tavernari for LUAD) will not transfer; Hallmarks remain the cross-cancer common target.
 
-## Stage 4: Explainability with sparse autoencoders
+## Stage 4: Explainability with (multimodal) sparse autoencoders
 
-- Train SAEs on frozen representations: VFM tile embeddings, BulkFormer embeddings, then the fused multimodal representation.
-- Interpret SAE concepts by association with Hallmarks, the Tavernari signature and histological patterns.
-- Spatial analysis of pathway- and pattern-associated concepts on the WSI.
-- Compare with the built-in tile-level explanations (scores, gates, contributions) and with pathway-specific relevance weights / ABMIL.
+**Data scale decides the level.** At patient level there are only about 470 TCGA and 220
+CPTAC patients, too few for an SAE with a dictionary larger than the embedding dimension.
+At token level there is plenty of data: about 8M TCGA tiles and about 10M BulkFormer gene
+tokens (529 samples × 20,010 genes). SAEs are trained on tokens, and patient-level
+analysis comes afterwards.
+
+1. **Unimodal tile SAE** on H-optimus-1 tile embeddings, the baseline:
+   - use a TopK SAE (Gao et al. 2024) for stable sparsity;
+   - interpret features through their top tiles, and through patient-level correlations
+     of each feature's active-tile fraction with Hallmarks, BulkFormer embeddings,
+     survival and the Tavernari score.
+2. **Shared-space SAE** on projected tile tokens plus projected gene tokens, using the 2c
+   projection heads:
+   - each feature is read through its top tiles (morphology) and top genes (biology);
+   - **modality gap:** contrastive spaces put the two modalities in separate regions
+     (Liang et al. 2022), so a naive SAE learns "tile vs gene" features. Center each
+     modality separately, sample them equally, and report which features fire for both;
+   - shared features are identified from paired patients: a feature's tile and gene
+     activations should correlate across patients.
+3. **Patient-level crosscoder** on the pair (slide embedding, RNA embedding):
+   - it reads both modalities and reconstructs both, with per-feature decoder norms per
+     modality;
+   - norm in both modalities means a shared concept; norm in only one means
+     modality-exclusive;
+   - this answers which transcriptomic programs are visible in morphology;
+   - small n means a small dictionary, so this is analysis rather than large-scale
+     training.
+
+**Spatial maps.** With project-then-pool, `h_i ≈ Σ_k a_ik d_k` gives
+`slide ≈ Σ_k (Σ_i w_i a_ik) d_k`. A slide-level concept activation is the
+attention-weighted sum of tile activations, exact up to reconstruction error. This extends
+the `pred = Σ_i w_i · tile_score_i` invariant to concepts.
+
+**Evaluation:**
+- association with Hallmarks, Tavernari and histological patterns;
+- spatial coherence of active tiles;
+- **faithfulness:** ablating a feature in the shared space should move the Hallmark probe
+  or the survival prediction in the expected direction;
+- pathologist review of the top tiles for a few features;
+- comparison with built-in tile explanations (scores, gates, contributions).
+
+**Prerequisites:** BulkFormer gene-level embeddings (about 13.5 GB fp16 for TCGA) and the
+2c projection heads.
 
 ## Other open items
 

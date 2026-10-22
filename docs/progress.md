@@ -115,10 +115,16 @@ Findings:
 
 ### 2c. WSI ↔ RNA alignment (retrieval)
 
+R@k values for the W&B runs are last-epoch values (the W&B summary). The best-epoch val
+MRR comes from the checkpoint's `ModelCheckpoint.best_model_score`.
+
+
 Chance level is recall@k = k / n_candidates and median rank = n / 2.
 
 | Date | W&B id | Slide encoder | RNA encoder | B | TCGA-val R@1 / R@5 / R@10 (WSI→RNA) | TCGA-val median rank | CPTAC R@1 / R@5 / R@10 | CPTAC median rank | Notes |
 |---|---|---|---|---|---|---|---|---|---|
+| 2026-10-22 | `orpg08id` | Gated, 512→256 | BulkFormer-147M → MLP 256 | 64 | last epoch (45): 0.211 / 0.495 / 0.653 | 5 | not run yet | | Best val MRR **0.386** at epoch 15 (`epoch=015-step=80.ckpt`), early-stopped at 45. Train loss 0.055 vs val 3.25: overfits after about epoch 15. fp32 LZF stores, no cache. |
+| 2026-10-22 | `kq0d13qf` | Mean, 512→256 | BulkFormer-147M → MLP 256 | 64 | last epoch (43): 0.242 / 0.521 / 0.668 | 5 | not run yet | | Best val MRR **0.405** at epoch 13 (`epoch=013-step=70.ckpt`), early-stopped at 43. Same overfitting. Mean ≈ gated: the 0.02 MRR gap is within noise for 95 val cases. |
 | 2026-10-22 | smoke (CSV) | Gated, 512→256 | BulkFormer-147M → MLP 256 | 64 | 0.126 / 0.284 / 0.453 | 12 | 0.033 / 0.089 / 0.207 | 41 | **Pipeline check only:** 2 epochs (10 steps), not tuned. Chance: val R@5 0.053 (median rank 47.5), CPTAC R@5 0.023 (median rank 106). Peak GPU 15 GB. About 8 min/epoch with `num_workers 0` (I/O-bound) |
 
 ### 2d. Downstream probes on frozen encoders

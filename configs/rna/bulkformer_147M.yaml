@@ -1,0 +1,14 @@
+# BulkFormer-147M (frozen). Architecture values from upstream model/config.py.
+# Graph and gene files: Zenodo 10.5281/zenodo.15744294.
+checkpoint: /home/valentin/workspaces/xai-wsi/models/external/bulkformer/BulkFormer_147M.pt
+graph: /home/valentin/workspaces/xai-wsi/models/external/bulkformer/G_tcga.pt
+graph_weight: /home/valentin/workspaces/xai-wsi/models/external/bulkformer/G_tcga_weight.pt
+gene_info: /home/valentin/workspaces/xai-wsi/models/external/bulkformer/bulkformer_gene_info.csv
+gene_lengths: /home/valentin/workspaces/xai-wsi/models/external/bulkformer/gene_length_df.csv
+model:
+  dim: 640
+  gb_repeat: 1
+  p_repeat: 12
+  bin_head: 12
+  full_head: 8
+  bins: 0

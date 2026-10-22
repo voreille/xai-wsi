@@ -23,24 +23,32 @@ The longer-term goal is a multimodal (WSI + bulk RNA) model for LUAD that is int
 ```text
 xai-wsi/
 ├── configs/
+│   ├── rna/
+│   │   └── bulkformer_{37M,147M}.yaml
 │   └── training/
 │       └── pathway_baseline.yaml
+│
+├── models/
+│   └── external/bulkformer/   # weights + gene graph (gitignored)
 │
 ├── data/
 │   ├── raw/
 │   │   ├── tcga-luad-rna/
 │   │   └── cptac-luad-rna/
 │   ├── external/
-│   │   └── msigdb/
+│   │   ├── msigdb/
+│   │   └── tcga-cdr/
 │   └── processed/
 │       ├── tcga-luad/
 │       │   ├── metadata/
 │       │   ├── rna/
+│       │   ├── rna-embeddings/
 │       │   ├── wsi-tiles/
 │       │   └── wsi-embeddings/
 │       └── cptac-luad/
 │           ├── metadata/
 │           ├── rna/
+│           ├── rna-embeddings/
 │           ├── wsi-tiles/
 │           └── wsi-embeddings/
 │
@@ -53,6 +61,8 @@ xai-wsi/
     │   ├── tcga/
     │   └── cptac/
     ├── rna/
+    │   ├── encoders/
+    │   │   └── bulkformer/
     │   └── pathways/
     ├── training/
     └── visualization/
@@ -186,6 +196,46 @@ For TCGA, slide IDs and RNA sample IDs are not expected to be identical. A diagn
 
 ---
 
+## 5. Build clinical / survival data
+
+Both steps write one row per case to `data/processed/<cohort>/metadata/clinical.csv`,
+keyed by `case_id` (the same key used for WSI/RNA pairing). Shared columns: `os_time`
+(days), `os_event` (1 = death), `age` (years), `sex`, `stage`, `stage_group` (I-IV).
+
+### TCGA-LUAD
+
+Endpoints come from the curated **TCGA Clinical Data Resource** (TCGA-CDR, Liu et al.,
+*Cell* 2018), not from raw GDC follow-up. The table is downloaded from GDC if it is
+missing. Besides OS, it keeps `dss_*`, `dfi_*` and `pfi_*`.
+
+```bash
+python -m xaiwsi.preprocessing.tcga.clinical \
+    --cdr data/external/tcga-cdr/TCGA-CDR-SupplementalTableS1.xlsx \
+    --cancer-type LUAD \
+    --output data/processed/tcga-luad/metadata/clinical.csv
+```
+
+### CPTAC-LUAD
+
+Clinical data comes from the GDC API. CPTAC-3 spans several cancer types, so it is
+restricted to the cases in our metadata. OS is `days_to_death` for deaths and the latest
+follow-up otherwise. A few slide-only cases (from TCIA) are not in GDC and are skipped
+with `--allow-missing`.
+
+```bash
+python -m xaiwsi.preprocessing.cptac.clinical \
+    --cases-from data/processed/cptac-luad/metadata/rna_samples.csv \
+                 data/processed/cptac-luad/metadata/wsi_slides.csv \
+    --allow-missing \
+    --output data/processed/cptac-luad/metadata/clinical.csv
+```
+
+Current coverage of the WSI+RNA paired cases with usable OS: TCGA-LUAD 465 (163 events),
+CPTAC-LUAD 203 (54 events). A few cases have `os_time <= 0`; survival models should
+drop or offset them.
+
+---
+
 # WSI tiling and embedding
 
 WSI tiling and embedding are performed with `wsitools`.
@@ -262,6 +312,48 @@ python -m xaiwsi.rna.pathways \
     --method <ssgsea|mean-z> \
     --output <scores.parquet>
 ```
+
+## BulkFormer RNA embeddings
+
+[BulkFormer](https://github.com/KangBoming/BulkFormer) is used as a frozen bulk-RNA encoder.
+Its model code (MIT) is vendored unchanged in `xaiwsi/rna/encoders/bulkformer/`
+(upstream commit `d63c881`). We don't use the authors' conda environment: inference only
+needs `torch-geometric` and `performer-pytorch==1.1.4`. Their compiled `torch_sparse`
+`SparseTensor` graph is replaced by the same adjacency as a native `torch.sparse` tensor.
+A `BatchedGCNConv` subclass handles batched inputs.
+
+Files in `models/external/bulkformer/` (all from
+[Zenodo 10.5281/zenodo.15744294](https://doi.org/10.5281/zenodo.15744294) except the
+checkpoints, which come from the Google Drive links in the upstream README):
+
+```text
+BulkFormer_147M.pt  BulkFormer_37M.pt  G_tcga.pt  G_tcga_weight.pt
+bulkformer_gene_info.csv  gene_length_df.csv
+```
+
+Input preprocessing follows upstream exactly:
+- raw `unstranded` counts are converted to TPM with the upstream gene lengths
+  (1000 bp if a gene has no length);
+- then `ln(TPM + 1)` (natural log, **not** our `log2_tpm`);
+- genes are aligned to the 20,010-gene vocabulary, and missing genes are set to -10;
+- `mask_prob` is the missing-gene fraction.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 uv run python -m xaiwsi.rna.encoders.bulkformer \
+    --config configs/rna/bulkformer_147M.yaml \
+    --counts data/processed/tcga-luad/rna/counts.parquet \
+    --output-dir data/processed/tcga-luad/rna-embeddings/bulkformer/147M
+```
+
+The output is `embeddings.parquet`, with one row per RNA sample (`sample_id`, as in
+`samples.csv`). Columns `emb_0..emb_{dim-1}` are the gene tokens averaged over genes
+(`--aggregation mean|max|median|all`). The three `stat_*` columns are the upstream
+sample statistics appended to every token: mask ratio, mean expression and non-zero
+ratio. `meta.json` records the inputs and settings.
+
+Sanity check (TCGA-LUAD, 64 samples, 15% of observed genes masked): imputation reaches a
+median per-gene Pearson correlation across samples of 0.77 for 147M and 0.69 for 37M.
+A per-gene-mean baseline gets 0.
 
 ## MSigDB Hallmarks
 
@@ -737,8 +829,8 @@ Each stage depends on the previous one producing a usable result. Stages 3 and 4
 ## Stage 2: RNA encoders and WSI + RNA fusion
 
 - **BulkFormer** as a frozen bulk-RNA foundation model, mirroring how tile embeddings are used:
-  - precompute and cache one embedding per RNA sample (like `wsi-embeddings/`), under `data/processed/<cohort>/rna-embeddings/bulkformer/`;
-  - check BulkFormer's expected gene identifiers and input normalization against our `genes.csv` / TPM outputs before embedding.
+  - done: one cached embedding per RNA sample under `data/processed/<cohort>/rna-embeddings/bulkformer/<variant>/`, using BulkFormer's own normalization (see "BulkFormer RNA embeddings");
+  - open: gene-level embeddings (for SAEs), and restricting aggregation to gene subsets.
 - Unimodal baselines first (WSI-only, RNA-only), then fusion (early concat, late fusion, cross-attention between tiles and the RNA embedding).
 - **Target leakage.** When RNA is a model input, targets computed from that same RNA (Hallmarks, Tavernari score) are no longer valid prediction targets. The task becomes reconstructing a function of the input. Multimodal experiments need targets independent of the RNA input, for example:
   - histological growth pattern / IASLC grade, stage, survival;

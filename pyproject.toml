@@ -29,6 +29,9 @@ dependencies = [
   "jsonargparse[signatures]",
   "wandb",
   "wsitools[embed]",  # ../wsi-tools; [embed] for wsi-embed (timm)
+  "torch-geometric",  # BulkFormer GCN; no torch-sparse/scatter needed
+  "performer-pytorch==1.1.4",  # BulkFormer; pinned to the upstream version (state_dict layout)
+  "openpyxl",  # TCGA-CDR clinical table (.xlsx)
 ]
 
 [project.optional-dependencies]

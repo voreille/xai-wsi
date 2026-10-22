@@ -49,10 +49,14 @@ What this means for code written now:
 
 ## Layout
 
-- `xaiwsi/preprocessing/{gdc,tcga,cptac}`: GDC STAR-count RNA and WSI metadata prep.
+- `xaiwsi/preprocessing/{gdc,tcga,cptac}`: GDC STAR-count RNA, WSI metadata and clinical prep
+  (TCGA survival from TCGA-CDR, CPTAC from the GDC API) -> `metadata/clinical.csv`.
   Each step runs as a module (`python -m xaiwsi.preprocessing.tcga.rna`, ...).
 - `xaiwsi/rna/`: gene handling, normalization, pathway scoring (`rna/pathways`, CLI in
   `__main__.py`; methods `ssgsea` and `mean-z`; gene sets: GMT, hallmarks, tavernari).
+- `xaiwsi/rna/encoders/bulkformer/`: frozen BulkFormer (vendored upstream model code, kept
+  unchanged; our code is in `load.py`/`preprocess.py`/`embed.py`), configs in `configs/rna/`.
+  Uses native `torch.sparse` instead of `torch_sparse`; don't add torch-scatter/sparse.
 - `xaiwsi/data/pathway.py`: case pairing of RNA and slides, splits, embedding dataset.
 - `xaiwsi/models/pathway.py`: `PathwayPredictor` subclasses (`TileLinearMean`,
   `TileMLPMean`, `TileMLPGatedMean`, `MeanMLP`).

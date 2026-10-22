@@ -819,23 +819,88 @@ Spearman is especially useful for CPTAC external evaluation because the model ma
 
 Each stage depends on the previous one producing a usable result. Stages 3 and 4 only make sense if the LUAD multimodal model from stage 2 works well.
 
-## Stage 1: WSI → RNA programs (current)
+## Stage 1: WSI → RNA programs
 
 - Frozen-VFM WSI baselines predicting the 50 Hallmarks (done).
 - Add the **Tavernari et al. (2021)** LUAD signature as a target. Tavernari et al., *Nongenetic evolution drives lung adenocarcinoma spatial heterogeneity and progression*, Cancer Discovery 2021 ([PMID 33563664](https://pubmed.ncbi.nlm.nih.gov/33563664/)), derived a transcriptional signature that tracks the histological pattern progression (lepidic → acinar/papillary → solid/micropapillary). Because the signature is tied to growth pattern, it is a natural target for a morphology model, and tile maps can be checked against pattern annotations.
   - Loader and scoring CLI already exist (`xaiwsi.rna.pathways.tavernari`, `--gene-set-type tavernari`). The gene list must come from the paper's supplement as a `.gmt`/`.json` file under `data/external/tavernari/`, with the supplement version recorded.
 - Patient-level aggregation over multiple WSIs (needed before trusting CPTAC numbers).
 
-## Stage 2: RNA encoders and WSI + RNA fusion
+## Stage 2: RNA encoders and WSI + RNA fusion (current)
 
-- **BulkFormer** as a frozen bulk-RNA foundation model, mirroring how tile embeddings are used:
-  - done: one cached embedding per RNA sample under `data/processed/<cohort>/rna-embeddings/bulkformer/<variant>/`, using BulkFormer's own normalization (see "BulkFormer RNA embeddings");
-  - open: gene-level embeddings (for SAEs), and restricting aggregation to gene subsets.
-- Unimodal baselines first (WSI-only, RNA-only), then fusion (early concat, late fusion, cross-attention between tiles and the RNA embedding).
-- **Target leakage.** When RNA is a model input, targets computed from that same RNA (Hallmarks, Tavernari score) are no longer valid prediction targets. The task becomes reconstructing a function of the input. Multimodal experiments need targets independent of the RNA input, for example:
-  - histological growth pattern / IASLC grade, stage, survival;
-  - cross-modal alignment (contrastive WSI ↔ RNA), evaluated by retrieval.
-- **Querying the Tavernari signature.** With a shared or aligned WSI–RNA space, the signature can be used as a query rather than a target: score it on RNA, then find which tiles, latent directions or fused features align with it, and test whether they correspond to the expected growth patterns.
+Results are tracked in [`docs/progress.md`](docs/progress.md).
+
+**Target leakage.** When RNA is a model input, targets computed from that same RNA
+(Hallmarks, Tavernari score) are no longer valid prediction targets: the task becomes
+reconstructing a function of the input. RNA can be an input only for targets that don't
+come from it (survival, stage, growth pattern) or for alignment/retrieval. Hallmarks
+stay a **WSI-only** target throughout.
+
+**Splits.** Every stage-2 experiment uses the same fixed TCGA train/val split
+(`split_cases`), and CPTAC is used only for external testing. Alignment pretraining sees
+only TCGA-train patients, so later probes on TCGA-val are not transductive. Report
+bootstrap 95% CIs over patients (CPTAC has only 54 OS events).
+
+### 2a. Inputs (done)
+- BulkFormer-147M sample embeddings (frozen) for both cohorts, see "BulkFormer RNA
+  embeddings". Use the 640 encoder dims and drop the `stat_*` columns.
+- Clinical / survival tables (`metadata/clinical.csv`): TCGA endpoints from TCGA-CDR,
+  CPTAC from GDC.
+- Open: gene-level BulkFormer embeddings (for SAEs), and aggregation over gene subsets.
+
+### 2b. RNA sanity checks (before any fusion)
+- Linear probes from the BulkFormer embedding to Hallmarks. This checks how much
+  information the embedding carries; it is not a prediction task.
+- Compare against **PCA of log TPM** at the same dimension. If BulkFormer doesn't beat
+  PCA, keep PCA as the RNA encoder or as a second arm.
+- Measure the TCGA → CPTAC shift in RNA space (cohort classifier AUC, UMAP).
+
+### 2c. Slide encoder + WSI ↔ RNA alignment
+- **Slide encoder:**
+  - frozen H-optimus-1 tiles go through a trainable pooling network (gated attention,
+    like `TileMLPGatedMean`, with no BatchNorm), then a projection;
+  - this yields one slide embedding, and the attention weights give tile-level maps.
+- **RNA side:** frozen BulkFormer embedding, then an MLP projection.
+- **Loss:** symmetric InfoNCE with a learnable temperature over B patients per step.
+- **Batching:** each batch is a list of whole-slide bags (all tiles, no padding or tile
+  sampling). Each bag is pooled separately and the B slide embeddings are stacked. Slides
+  hold about 10k–60k tiles; B=64 fits in an H100's memory, using bf16 and an early
+  1536→256/512 projection if needed. Random tile subsets are an optional later experiment
+  (augmentation), not a requirement.
+- **Metrics:** WSI → RNA and RNA → WSI retrieval (recall@1/5/10, median rank) on
+  TCGA-val, then CPTAC once.
+- **Baselines:** chance level, mean-pooled tiles, and PCA as the RNA encoder.
+- **Later:** patient-level bags (concatenate one patient's slides), which matters for
+  CPTAC.
+
+### 2d. Downstream evaluation of the frozen encoders
+- **Hallmarks from WSI** (no RNA input):
+  - probe (ridge / small MLP) the frozen aligned slide embedding to the 50 Hallmarks;
+  - compare with the supervised stage-1 models on the same split, the same train-only
+    z-score statistics and the same metrics (median Spearman, R²);
+  - this tests whether alignment transfers RNA-program information into the slide
+    encoder;
+  - optional: a multitask variant, alignment loss plus an auxiliary Hallmark head on the
+    WSI branch. It stays leakage-free because predictions use only the WSI.
+- **Overall survival:**
+  - Cox models on fixed vectors (full batches, no tile batching), with three arms: WSI
+    only (slide embedding), RNA only (BulkFormer), and fusion (concatenation, late
+    fusion);
+  - clinical covariates (age, stage) as a reference arm, and with each arm to show added
+    value;
+  - an end-to-end reference: a discrete-time survival loss from tiles at batch size 1 (as
+    in MCAT/PORPOISE);
+  - metrics: C-index on TCGA-val, CPTAC once, and a stratified log-rank test (KM split
+    at the TCGA-train median risk);
+  - PFI and DSS (TCGA only) as secondary endpoints.
+- **Querying the Tavernari signature:**
+  - score it on RNA, then find the tiles, latent directions or fused features that align
+    with it in the shared space;
+  - test whether they correspond to the expected growth patterns.
+
+### 2e. Fusion models (if 2c/2d show complementary signal)
+- Cross-attention between tiles and the RNA embedding, with survival or other
+  non-RNA-derived targets only.
 
 ## Stage 3: Other cancer types (conditional on stage 2)
 

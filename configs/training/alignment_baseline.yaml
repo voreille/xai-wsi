@@ -39,8 +39,8 @@ data:
   cptac_rna_dir: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/rna
   tcga_rna_embeddings: /home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/rna-embeddings/bulkformer/147M/embeddings.parquet
   cptac_rna_embeddings: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/rna-embeddings/bulkformer/147M/embeddings.parquet
-  tcga_embedding_dir: /home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/wsi-embeddings/h-optimus-1
-  cptac_embedding_dir: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/wsi-embeddings/h-optimus-1
+  tcga_embedding_dir: /home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/wsi-embeddings/h-optimus-1-fp16
+  cptac_embedding_dir: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/wsi-embeddings/h-optimus-1-fp16
   tcga_wsi_metadata: /home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/metadata/wsi_slides.csv
   cptac_wsi_metadata: /home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/metadata/wsi_slides.csv
   tcga_slides_root_dir: /mnt/nas7/data/TCGA_Lung_svs

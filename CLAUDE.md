@@ -57,6 +57,9 @@ What this means for code written now:
 - `xaiwsi/rna/encoders/bulkformer/`: frozen BulkFormer (vendored upstream model code, kept
   unchanged; our code is in `load.py`/`preprocess.py`/`embed.py`), configs in `configs/rna/`.
   Uses native `torch.sparse` instead of `torch_sparse`; don't add torch-scatter/sparse.
+- Tile embedding stores: `wsi-embeddings/h-optimus-1/` (original fp32, LZF, tiny chunks)
+  and `h-optimus-1-fp16/` (repacked with `wsi-repack`, used by alignment). Alignment
+  training caches decoded slides in RAM (`data.cache_tiles`).
 - `xaiwsi/data/pathway.py`: case pairing of RNA and slides, splits, embedding dataset.
 - `xaiwsi/models/pathway.py`: `PathwayPredictor` subclasses (`TileLinearMean`,
   `TileMLPMean`, `TileMLPGatedMean`, `MeanMLP`).

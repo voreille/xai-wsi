@@ -265,6 +265,23 @@ wsi-tiles/
 
 ## Embedding extraction
 
+### Repacked fp16 stores
+
+`wsi-repack` (wsitools) rewrites a store with fp16 features, no compression and
+1024-row chunks. It writes atomically per slide, is resumable, and verifies each slide
+against the source. Reads take about 3× less time with half the disk space (TCGA 55.0 →
+28.3 GB, CPTAC 45.5 → 23.7 GB). The alignment config uses these stores; the original
+stores are kept for older run configs.
+
+```bash
+for c in tcga-luad cptac-luad; do
+  E=data/processed/$c/wsi-embeddings
+  uv run python -m wsitools.storage.repack --src $E/h-optimus-1 \
+      --dst $E/h-optimus-1-fp16 --dtype float16 --chunk-rows 1024 --workers 16
+done
+```
+
+
 Example with H-optimus-1:
 
 ```bash
@@ -647,8 +664,9 @@ uv run python -m xaiwsi.training.alignment_cli test \
   decoded once into RAM as fp16 by `cache_workers` processes. That takes about 45 s for
   TCGA-train and about 26 GB of RAM for TCGA. After that, epochs are GPU-bound (4 epochs
   in about 80 s in total).
-  - The current h5 stores are LZF-compressed in 64×96 chunks: 1.00× compression, and
-    1–12 s of CPU per slide read.
+  - The original h5 stores are LZF-compressed in 64×96 auto-chunks (1.00×
+    compression), so every read decompresses on the CPU. Under load (several runs with
+    16 workers each, plus other users) that took 1–12 s per slide.
   - Without the cache (`cache_tiles: false`), DataLoader workers pass about 95 MB bags
     through `/dev/shm`. In containers with a small `/dev/shm` (Docker's default is
     64 MB), loading stalls.

@@ -139,6 +139,11 @@ Overall survival (C-index, 95% CI):
 
 ## Decisions log
 
+- **2026-10-22:** H-optimus-1 stores repacked to fp16, uncompressed, with 1024-row chunks
+  (`h-optimus-1-fp16/`, `wsi-repack` in wsitools, every slide verified). The alignment
+  config uses them. Stage-1 configs still point at the original fp32 LZF stores.
+  Alignment training also caches decoded slides in RAM (`cache_tiles`), which made 4
+  epochs take about 80 s instead of several minutes per epoch.
 - **2026-10-22:** the 2c slide encoder projects tiles into the shared space before
   pooling, so tile tokens can feed the stage-4 multimodal SAE. BulkFormer gene-level
   embeddings move up in priority.

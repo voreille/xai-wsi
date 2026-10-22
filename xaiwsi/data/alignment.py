@@ -21,7 +21,8 @@ def _init_cache_worker(embedding_dir: str) -> None:
 
 
 def _load_tiles(slide_id: str, dtype: str) -> tuple[str, np.ndarray]:
-    tiles, _, _ = _worker_store.load(slide_id)
+    # features_dtype=None keeps the stored dtype (no fp32 round trip for fp16 stores).
+    tiles, _, _ = _worker_store.load(slide_id, features_dtype=None)
     return slide_id, np.asarray(tiles).astype(dtype, copy=False)
 
 
@@ -34,8 +35,9 @@ def cache_slide_tiles(
 ) -> dict[str, torch.Tensor]:
     """Decode whole-slide tile embeddings once into RAM, in parallel processes.
 
-    The h5 stores are LZF-compressed in small chunks, so reading a slide costs about
-    1-10 s of CPU every time. Caching once per run makes later epochs GPU-bound.
+    Legacy h5 stores (LZF, tiny auto-chunks) cost about 1-10 s of CPU per slide read;
+    repacked fp16 stores (``wsi-repack``) are much faster to read, but caching once per
+    run still makes later epochs GPU-bound.
     """
     slide_ids = list(dict.fromkeys(slide_ids))
     cache: dict[str, torch.Tensor] = {}

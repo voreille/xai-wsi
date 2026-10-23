@@ -18,7 +18,8 @@ import pandas as pd
 import torch
 import yaml
 
-TEST_METRIC = re.compile(r"(test/median_(?:spearman|r2))\W+([-+]?\d[\d.eE+-]*)")
+# Separator: spaces or table borders, never the sign of the value.
+TEST_METRIC = re.compile(r"(test/median_(?:spearman|r2))[\s│|]+([-+]?\d[\d.eE+-]*)")
 
 
 def best_val_score(run_dir: Path) -> float | None:

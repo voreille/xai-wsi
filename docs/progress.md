@@ -63,6 +63,25 @@ host (`data.train_fraction`, `data.train_subset_seed`).
   follows the same direction.
 - CPTAC median R² stays negative (−0.26 at 100%), the known offset between cohorts.
 - An sklearn MLP probe was dropped: unstable with early stopping on few cases.
+Tile-level confirmation (host, `scripts/learning_curve.sh`, `TileMLPMean` from
+`pathway_baseline.yaml`, W&B group `learning-curve-1023`, runs `lc-1023-f*-s*`, 3 subset
+seeds per fraction, `outputs/learning_curve/tile_runs.csv`):
+
+| Train cases | TCGA-val median Spearman (sd) | CPTAC median Spearman (sd) | CPTAC median R² |
+|---|---|---|---|
+| 94 (25%) | 0.245 (0.016) | 0.248 (0.054) | −1.06 |
+| 189 (50%) | 0.208 (0.059) | 0.273 (0.013) | −0.70 |
+| 284 (75%) | 0.272 (0.029) | 0.316 (0.041) | −0.50 |
+| 378 (100%) | 0.285 (0.016) | 0.342 (0.034) | −0.43 |
+
+- CPTAC rises steadily (+0.07 from 50% to 100%), like the ridge probe. TCGA-val is noisy
+  (the 50% point dips) but ends highest at 100%. No plateau.
+- `TileMLPMean` is not better than the ridge on slide means (CPTAC 0.342 vs 0.364, TCGA-val
+  0.285 vs 0.283). At this data size, the tile-level MLP adds nothing over a linear
+  readout of the mean embedding.
+- Best epochs are early (2–8 of 30 at 50–100%): the model overfits within a few epochs.
+- CPTAC R² improves with more data (−1.06 → −0.43) but stays negative: the cohort offset.
+
 - Suggests more training cases would help, at least for this linear probe. Whether cases
   from other cancer types help LUAD as much as LUAD cases do is a separate question.
 

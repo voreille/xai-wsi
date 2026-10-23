@@ -37,6 +37,31 @@ Fill these in from W&B; the runs are on the other server.
 | | | `TileMLPMean` | H-optimus-1 | | | | | |
 | | | `TileMLPGatedMean` | H-optimus-1 | | | | | |
 
+### Learning curve: is WSI → Hallmarks data-limited? (2026-10-23)
+
+Ridge probe on per-slide mean H-optimus-1 embeddings, on random fractions of TCGA-train
+(5 subsets per fraction; z-score statistics fit on each subset), TCGA-val and CPTAC fixed
+(`xaiwsi.evaluation.learning_curve`, `outputs/learning_curve/`). This is a proxy for the
+data needs, not a stage-1 model. Tile-level confirmation: `scripts/learning_curve.sh` on the
+host (`data.train_fraction`, `data.train_subset_seed`).
+
+| Train cases | TCGA-val median Spearman (sd) | CPTAC median Spearman (sd) |
+|---|---|---|
+| 38 (10%) | 0.167 (0.070) | 0.180 (0.033) |
+| 76 (20%) | 0.218 (0.043) | 0.215 (0.051) |
+| 113 (30%) | 0.248 (0.041) | 0.243 (0.042) |
+| 189 (50%) | 0.227 (0.052) | 0.300 (0.053) |
+| 265 (70%) | 0.252 (0.032) | 0.337 (0.027) |
+| 378 (100%) | 0.283 | 0.364 |
+
+- Still rising at 100%, with no plateau: CPTAC gains about 0.06 per doubling of the
+  training set (0.300 → 0.364 from 189 to 378 cases). TCGA-val is noisier (95 cases) but
+  follows the same direction.
+- CPTAC median R² stays negative (−0.26 at 100%), the known offset between cohorts.
+- An sklearn MLP probe was dropped: unstable with early stopping on few cases.
+- Suggests more training cases would help, at least for this linear probe. Whether cases
+  from other cancer types help LUAD as much as LUAD cases do is a separate question.
+
 ### Approximate Tavernari growth-pattern sets vs Hallmarks (2026-10-23)
 
 The published L2S signature genes are not released. Approximate lepidic/solid sets were

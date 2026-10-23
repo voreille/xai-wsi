@@ -46,6 +46,9 @@ What this means for code written now:
 
 ## Environment
 
+- Experiments: quick checks (minutes, small probes, smoke runs) can run in claude-box.
+  For bigger experiments (training sweeps, long GPU runs), write the code plus a
+  `scripts/*.sh` launcher, and the user runs it on the host (W&B, DataLoader workers).
 - Python >= 3.12. Set up with `uv sync`, run everything through `uv run ...`.
 - `wsitools` (provides `wsi-tile`, `wsi-embed` and the `wsitools.storage` embedding
   stores) is a sibling repo installed editable from `../wsi-tools` via

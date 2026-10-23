@@ -33,6 +33,8 @@ class PathwayDataModule(L.LightningDataModule):
         hallmark_gmt: str,
         val_fraction: float = 0.2,
         split_seed: int = 42,
+        train_fraction: float = 1.0,
+        train_subset_seed: int = 0,
         batch_size: int = 1,
         num_workers: int = 8,
         pin_memory: bool = True,
@@ -50,6 +52,8 @@ class PathwayDataModule(L.LightningDataModule):
 
         self.val_fraction = val_fraction
         self.split_seed = split_seed
+        self.train_fraction = train_fraction
+        self.train_subset_seed = train_subset_seed
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.pin_memory = pin_memory
@@ -94,6 +98,15 @@ class PathwayDataModule(L.LightningDataModule):
             val_fraction=self.val_fraction,
             seed=self.split_seed,
         )
+        # Learning curves: train on a random subset of the training split; validation
+        # and CPTAC stay fixed, and z-score statistics are fit on the subset only.
+        if not 0.0 < self.train_fraction <= 1.0:
+            raise ValueError(f"train_fraction must be in (0, 1], got {self.train_fraction}.")
+        if self.train_fraction < 1.0:
+            train_pairs = train_pairs.sample(
+                n=max(int(round(self.train_fraction * len(train_pairs))), 1),
+                random_state=self.train_subset_seed,
+            )
 
         hallmarks = load_hallmarks(self.hallmark_gmt)
         self.pathway_names = list(hallmarks.keys())

@@ -9,10 +9,11 @@ flow or CLIs.
 
 ## Research direction
 
-Final goal: WSI-only inference that estimates the activity of the pathways/signature
-Tavernari et al. 2021 linked to LUAD growth patterns, as a continuous activity with its
-uncertainty (predictive distribution/interval, not a high/low class), with tile-level
-interpretability. Hallmarks are the current proxy target. RNA is used only at
+Final goal: WSI-only inference that estimates the activity of the 50 Hallmark pathways,
+as a continuous activity with its uncertainty (predictive distribution/interval, not a
+high/low class), with tile-level interpretability. Tavernari et al. 2021 growth-pattern
+gene sets were the motivation but are not released, so they are on hold. Because Hallmarks
+are cross-cancer, more TCGA/CPTAC cohorts are an option against overfitting. RNA is used only at
 training time (targets, alignment, fusion or distillation). The project is exploratory: try
 variants to learn what that predictor needs, but judge them by what a WSI-only model can
 use at test time. For example, a test-time step that needs CPTAC RNA (such as centering the
@@ -24,7 +25,8 @@ working:
 1. WSI → RNA programs: Hallmarks (done), Tavernari et al. 2021 LUAD growth-pattern
    signature, multi-slide patient aggregation.
 2. BulkFormer as a frozen RNA encoder, then WSI + RNA fusion.
-3. Other TCGA/CPTAC cancer types, only if stage 2 works.
+3. Other TCGA/CPTAC cancer types: either after stage 2 works, or earlier as extra
+   training data against overfitting.
 4. XAI with sparse autoencoders on tile, RNA and fused representations.
 
 What this means for code written now:

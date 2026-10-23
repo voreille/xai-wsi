@@ -14,7 +14,7 @@ The current pipeline supports:
 
 The main use case is to study whether morphology encoded by pathology foundation models predicts RNA-derived biological programs, while retaining tile-level interpretability.
 
-**Final goal:** at inference, use the WSI only and estimate the activity of the pathways/signature that Tavernari et al. (2021) linked to LUAD growth patterns, with tile- and concept-level interpretability. The output is a continuous activity with its uncertainty (a predictive distribution or interval), because the estimate from morphology won't be certain. It is not a high/low class. Hallmarks are the current proxy target and the cross-cancer common target. RNA is a training-time signal: it supplies the targets and can shape the slide representation (alignment, fusion, distillation), but a deployed model must not need RNA. The work is still exploratory: multimodal (WSI + bulk RNA) models, alignment and other cancer types are tested to learn what this WSI-only predictor needs. See [Research roadmap](#research-roadmap).
+**Final goal:** at inference, use the WSI only and estimate the activity of the 50 MSigDB Hallmark pathways, with tile- and concept-level interpretability. The output is a continuous activity with its uncertainty (a predictive distribution or interval), because the estimate from morphology won't be certain. It is not a high/low class. The original motivation was the growth-pattern-linked pathways of Tavernari et al. (2021), but their gene sets are not released. Hallmarks are therefore the target, and because they are shared across cancer types, more TCGA/CPTAC data can be added to fight overfitting. RNA is a training-time signal: it supplies the targets and can shape the slide representation (alignment, fusion, distillation), but a deployed model must not need RNA. The work is still exploratory: multimodal (WSI + bulk RNA) models, alignment and other cancer types are tested to learn what this WSI-only predictor needs. See [Research roadmap](#research-roadmap).
 
 ---
 
@@ -884,6 +884,7 @@ Each stage depends on the previous one producing a usable result. Stages 3 and 4
 - Frozen-VFM WSI baselines predicting the 50 Hallmarks (done).
 - Add the **Tavernari et al. (2021)** LUAD signature as a target. Tavernari et al., *Nongenetic evolution drives lung adenocarcinoma spatial heterogeneity and progression*, Cancer Discovery 2021 ([PMID 33563664](https://pubmed.ncbi.nlm.nih.gov/33563664/)), derived a transcriptional signature that tracks the histological pattern progression (lepidic → acinar/papillary → solid/micropapillary). Because the signature is tied to growth pattern, it is a natural target for a morphology model, and tile maps can be checked against pattern annotations.
   - Loader and scoring CLI already exist (`xaiwsi.rna.pathways.tavernari`, `--gene-set-type tavernari`). The gene list must come from the paper's supplement as a `.gmt`/`.json` file under `data/external/tavernari/`, with the supplement version recorded.
+  - **Status (2026-10-23): on hold.** The paper's released material does not contain the gene sets, so Hallmarks are the target.
 - Patient-level aggregation over multiple WSIs (needed before trusting CPTAC numbers).
 
 ## Stage 2: RNA encoders and WSI + RNA fusion (current)
@@ -978,6 +979,9 @@ bootstrap 95% CIs over patients (CPTAC has only 54 OS events).
   non-RNA-derived targets only.
 
 ## Stage 3: Other cancer types (conditional on stage 2)
+
+Update 2026-10-23: more TCGA/CPTAC cohorts are also a lever against the overfitting of the LUAD models (about 470 TCGA training/validation cases), since Hallmarks are a cross-cancer target. They can be pulled in earlier than stage 2 completion if regularization alone does not suffice.
+
 
 - Download additional TCGA/CPTAC cohorts (RNA + diagnostic WSIs) with the same GDC/STAR pipeline.
 - Requires generalizing code that is currently LUAD-specific: cohort names and paths in configs, the TCGA/CPTAC preprocessing entry points, and any hard-coded output dimension (50 Hallmarks).

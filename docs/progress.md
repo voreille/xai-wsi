@@ -37,6 +37,42 @@ Fill these in from W&B; the runs are on the other server.
 | | | `TileMLPMean` | H-optimus-1 | | | | | |
 | | | `TileMLPGatedMean` | H-optimus-1 | | | | | |
 
+### Approximate Tavernari growth-pattern sets vs Hallmarks (2026-10-23)
+
+The published L2S signature genes are not released. Approximate lepidic/solid sets were
+derived from the supplement's pattern-wise DE tables (`scripts/build_tavernari_approx_genesets.py`,
+sources in `data/external/tavernari/supplement/SOURCE.md`): TCGA (Table S3, |LvsS| ≥ 1:
+476 lepidic / 322 solid), CHUV (Table S6, |LvsS| ≥ 1: 88 / 92), and REPLICATED (in both
+tables with the same sign: 45 / 17; all 62 shared genes agree in sign). 17 TCGA-set genes with
+outdated symbols are not scored. `L2S_<src>` = solid − lepidic mean-z, with train-only
+z-score statistics (`xaiwsi.evaluation.geneset_vs_hallmarks`, outputs in
+`outputs/tavernari_approx/`). The TCGA and REPLICATED sets were selected partly on TCGA-LUAD
+samples, so they are not independent of our cohort; the CHUV sets are.
+
+RNA side only: how well a ridge model on the 50 Hallmark scores (fit on TCGA-train)
+predicts each score.
+
+| Score | Top Hallmarks (Spearman, TCGA) | R² val | R² CPTAC | Spearman CPTAC |
+|---|---|---|---|---|
+| `L2S_TCGA` | E2F +0.70, G2M +0.66, MTORC1 +0.54 | 0.94 | 0.90 | 0.97 |
+| `L2S_REPLICATED` | E2F +0.65, G2M +0.60, MTORC1 +0.51 | 0.88 | 0.77 | 0.95 |
+| `L2S_CHUV` | bile acid −0.54, fatty acid −0.44, heme −0.43 | 0.75 | 0.80 | 0.92 |
+| `SOLID_TCGA` | E2F +0.87, G2M +0.85, MTORC1 +0.74 | 0.98 | 0.95 | 0.99 |
+| `SOLID_CHUV` | EMT +0.46, allograft rejection +0.45, inflammatory +0.37 | 0.64 | 0.68 | 0.85 |
+| `LEPIDIC_TCGA` | bile acid +0.63, KRAS_DN +0.57, myogenesis +0.51 | 0.89 | 0.83 | 0.95 |
+
+- The 50 Hallmarks explain 88–94% of the variance of the TCGA-derived axes on TCGA-val. The
+  solid side is mostly proliferation (SOLID_TCGA shares 60 genes with G2M_CHECKPOINT and
+  57 with E2F_TARGETS).
+- The CHUV axis keeps the most unexplained variance (25%), but its solid set tracks EMT and
+  immune Hallmarks: probably stromal/immune content of the CHUV regions. Tavernari et al.
+  removed this by keeping only cancer-specific markers, which can't be redone from the
+  tables. The lepidic sets track bile acid/fatty acid metabolism, KRAS_DN and myogenesis,
+  probably normal alveolar and stromal content.
+- The three L2S variants agree (Spearman 0.62–0.97). The CHUV variant agrees least.
+- Conclusion: as RNA targets, these approximate sets add little beyond the Hallmarks. This
+  says nothing yet about how predictable they are from the WSI.
+
 ## Stage 2
 
 ### 2a. BulkFormer integration checks (2026-10-22)

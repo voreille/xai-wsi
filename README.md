@@ -107,6 +107,18 @@ gdc-client download \
     -d data/raw/cptac-luad-rna
 ```
 
+Manifests come from the GDC `files` endpoint (`return_type: manifest`) with open-access
+`data_type = Gene Expression Quantification` and `analysis.workflow_type = STAR - Counts`, plus:
+
+| Cohort | Extra filters | Files |
+|---|---|---|
+| TCGA-LUAD | `cases.project.project_id = TCGA-LUAD` | 601 |
+| TCGA-LUSC | `cases.project.project_id = TCGA-LUSC` | 562 |
+| CPTAC-LUAD | `CPTAC-3`, `cases.primary_site = Bronchus and lung`, `cases.disease_type = Adenomas and Adenocarcinomas` | 446 |
+| CPTAC-LSCC | `CPTAC-3`, `cases.primary_site = Bronchus and lung`, `cases.disease_type = Squamous Cell Neoplasms` | 206 |
+
+Counts as of 2026-10-23. Each manifest is stored as `data/raw/<cohort>-rna/manifest.txt`.
+
 The raw GDC filenames are kept untouched. Dataset-specific metadata tables provide the mapping from GDC file IDs to cases, samples, and aliquots.
 
 ---

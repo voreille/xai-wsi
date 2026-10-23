@@ -123,9 +123,31 @@ Chance level is recall@k = k / n_candidates and median rank = n / 2.
 
 | Date | W&B id | Slide encoder | RNA encoder | B | TCGA-val R@1 / R@5 / R@10 (WSI→RNA) | TCGA-val median rank | CPTAC R@1 / R@5 / R@10 | CPTAC median rank | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 2026-10-22 | `orpg08id` | Gated, 512→256 | BulkFormer-147M → MLP 256 | 64 | last epoch (45): 0.211 / 0.495 / 0.653 | 5 | not run yet | | Best val MRR **0.386** at epoch 15 (`epoch=015-step=80.ckpt`), early-stopped at 45. Train loss 0.055 vs val 3.25: overfits after about epoch 15. fp16 stores + RAM cache. |
-| 2026-10-22 | `kq0d13qf` | Mean, 512→256 | BulkFormer-147M → MLP 256 | 64 | last epoch (43): 0.242 / 0.521 / 0.668 | 5 | not run yet | | Best val MRR **0.405** at epoch 13 (`epoch=013-step=70.ckpt`), early-stopped at 43. Same overfitting. Mean ≈ gated: the 0.02 MRR gap is within noise for 95 val cases. fp16 stores + RAM cache. |
+| 2026-10-22 | `orpg08id` | Gated, 512→256 | BulkFormer-147M → MLP 256 | 64 | last epoch (45): 0.211 / 0.495 / 0.653 | 5 | best ckpt: 0.066 / 0.192 / 0.347; centered: 0.103 / 0.230 / 0.352 | 21; centered 19 | Best val MRR **0.386** at epoch 15 (`epoch=015-step=80.ckpt`), early-stopped at 45. Train loss 0.055 vs val 3.25: overfits after about epoch 15. fp16 stores + RAM cache. |
+| 2026-10-22 | `kq0d13qf` | Mean, 512→256 | BulkFormer-147M → MLP 256 | 64 | last epoch (43): 0.242 / 0.521 / 0.668 | 5 | best ckpt: 0.042 / 0.164 / 0.338; centered: 0.047 / 0.169 / 0.333 | 20; centered 22 | Best val MRR **0.405** at epoch 13 (`epoch=013-step=70.ckpt`), early-stopped at 43. Same overfitting. Mean ≈ gated: the 0.02 MRR gap is within noise for 95 val cases. fp16 stores + RAM cache. |
 | 2026-10-22 | smoke (CSV) | Gated, 512→256 | BulkFormer-147M → MLP 256 | 64 | 0.126 / 0.284 / 0.453 | 12 | 0.033 / 0.089 / 0.207 | 41 | **Pipeline check only:** 2 epochs (10 steps), not tuned. Chance: val R@5 0.053 (median rank 47.5), CPTAC R@5 0.023 (median rank 106). Peak GPU 15 GB. About 8 min/epoch with `num_workers 0` (I/O-bound) |
+
+CPTAC external test (2026-10-23, best checkpoints, 213 candidates, chance R@5 0.023, median
+rank 106). "Centered" means `data.rna_center_per_cohort true`: CPTAC RNA embeddings are
+centered on their own mean (label-free but transductive) and scaled with the TCGA-train std.
+Run in claude-box without a W&B key (`--trainer.logger false`), so these numbers are not in
+the W&B runs yet.
+
+| W&B id | RNA centering | WSI→RNA R@1 / R@5 / R@10, median rank, MRR | RNA→WSI R@1 / R@5 / R@10, median rank, MRR |
+|---|---|---|---|
+| `kq0d13qf` (mean) | TCGA-train | 0.042 / 0.164 / 0.338, 20, 0.128 | 0.019 / 0.103 / 0.174, 65, 0.076 |
+| `kq0d13qf` (mean) | per cohort | 0.047 / 0.169 / 0.333, 22, 0.138 | 0.080 / 0.235 / 0.385, 17, 0.181 |
+| `orpg08id` (gated) | TCGA-train | 0.066 / 0.192 / 0.347, 21, 0.147 | 0.028 / 0.080 / 0.169, 57, 0.076 |
+| `orpg08id` (gated) | per cohort | 0.103 / 0.230 / 0.352, 19, 0.182 | 0.089 / 0.235 / 0.404, 17, 0.177 |
+
+- Alignment transfers to CPTAC (WSI→RNA R@5 about 7–10× chance) but is far below TCGA-val
+  (MRR 0.39–0.41 vs 0.13–0.18), consistent with overfitting plus a cohort shift.
+- The cohort offset sits in the RNA embeddings and mainly breaks RNA→WSI (median rank
+  57–65 → 17). A constant shift of the RNA queries changes which slides rank first, while a
+  constant shift of all RNA candidates mostly preserves the ranking. Per-cohort centering
+  fixes it and makes the two directions symmetric.
+- Gated ≥ mean on CPTAC (centered MRR 0.182 vs 0.138 WSI→RNA), the reverse of TCGA-val. With
+  213 cases and one seed this is suggestive, not conclusive.
 
 ### 2d. Downstream probes on frozen encoders
 

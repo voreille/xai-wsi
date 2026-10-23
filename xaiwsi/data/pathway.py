@@ -81,10 +81,12 @@ class PathwayEmbeddingDataset(Dataset):
         embedding_store: EmbeddingStore,
         pairs: pd.DataFrame,
         pathway_scores: pd.DataFrame,
+        cohort: str = "",
     ):
         self.embedding_store = embedding_store
         self.pairs = pairs.reset_index(drop=True)
         self.pathway_scores = pathway_scores
+        self.cohort = cohort
 
     def __len__(self) -> int:
         return len(self.pairs)
@@ -101,6 +103,7 @@ class PathwayEmbeddingDataset(Dataset):
         )
 
         return {
+            "cohort": self.cohort,
             "case_id": str(row["case_id"]),
             "slide_id": slide_id,
             "sample_id": sample_id,

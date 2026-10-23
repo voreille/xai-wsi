@@ -18,6 +18,8 @@ import pandas as pd
 import torch
 import yaml
 
+from xaiwsi.training.run_config import data_args
+
 # Separator: spaces or table borders, never the sign of the value.
 TEST_METRIC = re.compile(r"(test/median_(?:spearman|r2))[\s│|]+([-+]?\d[\d.eE+-]*)")
 
@@ -47,13 +49,13 @@ def main() -> None:
 
     rows = []
     for run_dir in sorted(args.run_root.glob(f"{args.prefix}-*")):
-        config = yaml.safe_load((run_dir / "config.yaml").read_text())
+        data = data_args(yaml.safe_load((run_dir / "config.yaml").read_text()))
         test = test_metrics(args.log_dir / f"{run_dir.name}.test.log")
         rows.append(
             {
                 "run": run_dir.name,
-                "fraction": config["data"].get("train_fraction", 1.0),
-                "subset_seed": config["data"].get("train_subset_seed", 0),
+                "fraction": data.get("train_fraction", 1.0),
+                "subset_seed": data.get("train_subset_seed", 0),
                 "val_median_spearman": best_val_score(run_dir),
                 "cptac_median_spearman": test.get("test/median_spearman"),
                 "cptac_median_r2": test.get("test/median_r2"),

@@ -3,22 +3,25 @@ from __future__ import annotations
 from pathlib import Path
 
 import lightning as L
-import pandas as pd
-from torch.utils.data import DataLoader
-from wsitools.storage.factory import build_embedding_store_from_dir
+from torch.utils.data import ConcatDataset, DataLoader
 
-from xaiwsi.data.pathway import (
-    PathwayEmbeddingDataset,
-    build_case_pairs,
-    load_log2_tpm_gene_symbols,
-    split_cases,
+from xaiwsi.data.cohorts import (
+    CohortSpec,
+    TargetNormalization,
+    build_pathway_splits,
+    select_cohorts,
 )
+from xaiwsi.data.pathway import PathwayEmbeddingDataset
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
-from xaiwsi.rna.pathways.scoring import fit_gene_zscore_stats, score_mean_z
 
 
 class PathwayDataModule(L.LightningDataModule):
-    """TCGA train/validation with CPTAC as an external test cohort."""
+    """TCGA train/validation with CPTAC as an external test cohort (two-cohort configs).
+
+    Kept as the CLI's base data module so that run configs without ``data.class_path``
+    still load. New configs use ``CohortPathwayDataModule``. Here the cohorts are named
+    ``tcga`` and ``cptac``.
+    """
 
     def __init__(
         self,
@@ -40,15 +43,60 @@ class PathwayDataModule(L.LightningDataModule):
         pin_memory: bool = True,
     ):
         super().__init__()
-        self.tcga_rna_dir = Path(tcga_rna_dir)
-        self.cptac_rna_dir = Path(cptac_rna_dir)
-        self.tcga_embedding_dir = Path(tcga_embedding_dir)
-        self.cptac_embedding_dir = Path(cptac_embedding_dir)
-        self.tcga_slides_root_dir = Path(tcga_slides_root_dir)
-        self.cptac_slides_root_dir = Path(cptac_slides_root_dir)
-        self.tcga_wsi_metadata = Path(tcga_wsi_metadata)
-        self.cptac_wsi_metadata = Path(cptac_wsi_metadata)
+        self._configure(
+            train_cohorts=[
+                CohortSpec(
+                    name="tcga",
+                    rna_dir=tcga_rna_dir,
+                    wsi_metadata=tcga_wsi_metadata,
+                    embedding_dir=tcga_embedding_dir,
+                    slides_root_dir=tcga_slides_root_dir,
+                )
+            ],
+            test_cohorts=[
+                CohortSpec(
+                    name="cptac",
+                    rna_dir=cptac_rna_dir,
+                    wsi_metadata=cptac_wsi_metadata,
+                    embedding_dir=cptac_embedding_dir,
+                    slides_root_dir=cptac_slides_root_dir,
+                    zscore_reference="tcga",
+                )
+            ],
+            processed_root=None,
+            embedding="",
+            hallmark_gmt=hallmark_gmt,
+            target_normalization="per_cohort",
+            val_fraction=val_fraction,
+            split_seed=split_seed,
+            train_fraction=train_fraction,
+            train_subset_seed=train_subset_seed,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
+
+    def _configure(
+        self,
+        *,
+        train_cohorts: list[CohortSpec],
+        test_cohorts: list[CohortSpec],
+        processed_root: str | None,
+        embedding: str,
+        hallmark_gmt: str,
+        target_normalization: TargetNormalization,
+        val_fraction: float,
+        split_seed: int,
+        train_fraction: float,
+        train_subset_seed: int,
+        batch_size: int,
+        num_workers: int,
+        pin_memory: bool,
+    ) -> None:
+        self.train_cohorts = [c.resolve(processed_root, embedding) for c in train_cohorts]
+        self.test_cohorts = [c.resolve(processed_root, embedding) for c in test_cohorts]
         self.hallmark_gmt = Path(hallmark_gmt)
+        self.target_normalization = target_normalization
 
         self.val_fraction = val_fraction
         self.split_seed = split_seed
@@ -71,114 +119,106 @@ class PathwayDataModule(L.LightningDataModule):
         if self._is_setup:
             return
 
-        tcga_store = build_embedding_store_from_dir(root_dir=self.tcga_embedding_dir)
-        cptac_store = build_embedding_store_from_dir(root_dir=self.cptac_embedding_dir)
-
-        tcga_expression = load_log2_tpm_gene_symbols(self.tcga_rna_dir)
-        cptac_expression = load_log2_tpm_gene_symbols(self.cptac_rna_dir)
-
-        tcga_pairs = build_case_pairs(
-            tcga_store,
-            pd.read_csv(self.tcga_wsi_metadata),
-            pd.read_csv(self.tcga_rna_dir / "samples.csv"),
-            tcga_expression,
-        )
-        cptac_pairs = build_case_pairs(
-            cptac_store,
-            pd.read_csv(self.cptac_wsi_metadata),
-            pd.read_csv(self.cptac_rna_dir / "samples.csv"),
-            cptac_expression,
-        )
-
-        print(f"TCGA paired cases:  {len(tcga_pairs)}")
-        print(f"CPTAC paired cases: {len(cptac_pairs)}")
-
-        train_pairs, val_pairs = split_cases(
-            tcga_pairs,
-            val_fraction=self.val_fraction,
-            seed=self.split_seed,
-        )
-        # Learning curves: train on a random subset of the training split; validation
-        # and CPTAC stay fixed, and z-score statistics are fit on the subset only.
-        if not 0.0 < self.train_fraction <= 1.0:
-            raise ValueError(f"train_fraction must be in (0, 1], got {self.train_fraction}.")
-        if self.train_fraction < 1.0:
-            train_pairs = train_pairs.sample(
-                n=max(int(round(self.train_fraction * len(train_pairs))), 1),
-                random_state=self.train_subset_seed,
-            )
-
         hallmarks = load_hallmarks(self.hallmark_gmt)
         self.pathway_names = list(hallmarks.keys())
 
-        train_sample_ids = train_pairs["sample_id"].tolist()
-        val_sample_ids = val_pairs["sample_id"].tolist()
-        cptac_sample_ids = cptac_pairs["sample_id"].tolist()
-
-        # Fit gene-wise z-score statistics on TCGA training samples only.
-        zscore_stats = fit_gene_zscore_stats(tcga_expression[train_sample_ids])
-
-        train_scores = score_mean_z(
-            tcga_expression[train_sample_ids],
+        splits = build_pathway_splits(
+            self.train_cohorts,
+            self.test_cohorts,
             hallmarks,
-            zscore_stats=zscore_stats,
-        )
-        val_scores = score_mean_z(
-            tcga_expression[val_sample_ids],
-            hallmarks,
-            zscore_stats=zscore_stats,
-        )
-        cptac_scores = score_mean_z(
-            cptac_expression[cptac_sample_ids],
-            hallmarks,
-            zscore_stats=zscore_stats,
+            val_fraction=self.val_fraction,
+            split_seed=self.split_seed,
+            train_fraction=self.train_fraction,
+            train_subset_seed=self.train_subset_seed,
+            target_normalization=self.target_normalization,
         )
 
-        if list(train_scores.columns) != self.pathway_names:
-            raise RuntimeError("Unexpected Hallmark ordering in training scores.")
-        if list(val_scores.columns) != self.pathway_names:
-            raise RuntimeError("TCGA validation Hallmark ordering differs.")
-        if list(cptac_scores.columns) != self.pathway_names:
-            raise RuntimeError("CPTAC Hallmark ordering differs.")
+        def dataset(split: str) -> ConcatDataset:
+            return ConcatDataset(
+                [
+                    PathwayEmbeddingDataset(part.store, part.pairs, part.scores, cohort=part.cohort)
+                    for part in splits[split]
+                ]
+            )
 
-        self.train_dataset = PathwayEmbeddingDataset(tcga_store, train_pairs, train_scores)
-        self.val_dataset = PathwayEmbeddingDataset(tcga_store, val_pairs, val_scores)
-        self.test_dataset = PathwayEmbeddingDataset(cptac_store, cptac_pairs, cptac_scores)
+        self.train_dataset = dataset("train")
+        self.val_dataset = dataset("val")
+        self.test_dataset = dataset("test")
 
         print(
-            f"Training on {len(self.train_dataset)} TCGA cases, "
-            f"validating on {len(self.val_dataset)} TCGA cases, "
-            f"testing on {len(self.test_dataset)} CPTAC cases."
+            f"Training on {len(self.train_dataset)} cases, "
+            f"validating on {len(self.val_dataset)} cases, "
+            f"testing on {len(self.test_dataset)} cases."
         )
 
         self._is_setup = True
 
-    def train_dataloader(self) -> DataLoader:
+    def _loader(self, dataset, *, shuffle: bool) -> DataLoader:
         return DataLoader(
-            self.train_dataset,
+            dataset,
             batch_size=self.batch_size,
-            shuffle=True,
+            shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,
         )
+
+    def train_dataloader(self) -> DataLoader:
+        return self._loader(self.train_dataset, shuffle=True)
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.num_workers > 0,
-        )
+        return self._loader(self.val_dataset, shuffle=False)
 
     def test_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.num_workers > 0,
+        return self._loader(self.test_dataset, shuffle=False)
+
+
+class CohortPathwayDataModule(PathwayDataModule):
+    """Train/validation on one or more cohorts, external test on others.
+
+    Every training cohort is split into train/val (``split_cases``, same seed); test
+    cohorts are used whole. Cohort paths follow ``<processed_root>/<name>/`` unless set in
+    the ``CohortSpec``. See ``xaiwsi.data.cohorts`` for the target normalization options.
+
+    ``use_train_cohorts`` trains on a subset of ``train_cohorts`` by name (one config for
+    LUAD-only and LUAD+LUSC runs); test cohorts whose ``zscore_reference`` is dropped are
+    skipped.
+    """
+
+    def __init__(
+        self,
+        train_cohorts: list[CohortSpec],
+        test_cohorts: list[CohortSpec],
+        hallmark_gmt: str,
+        use_train_cohorts: list[str] | None = None,
+        processed_root: str | None = None,
+        embedding: str = "h-optimus-1",
+        target_normalization: TargetNormalization = "per_cohort",
+        val_fraction: float = 0.2,
+        split_seed: int = 42,
+        train_fraction: float = 1.0,
+        train_subset_seed: int = 0,
+        batch_size: int = 1,
+        num_workers: int = 8,
+        pin_memory: bool = True,
+    ):
+        L.LightningDataModule.__init__(self)
+        if use_train_cohorts is not None:
+            train_cohorts, test_cohorts = select_cohorts(
+                train_cohorts, test_cohorts, use_train_cohorts
+            )
+        self._configure(
+            train_cohorts=train_cohorts,
+            test_cohorts=test_cohorts,
+            processed_root=processed_root,
+            embedding=embedding,
+            hallmark_gmt=hallmark_gmt,
+            target_normalization=target_normalization,
+            val_fraction=val_fraction,
+            split_seed=split_seed,
+            train_fraction=train_fraction,
+            train_subset_seed=train_subset_seed,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
         )

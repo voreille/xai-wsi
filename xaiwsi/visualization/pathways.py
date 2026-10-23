@@ -18,6 +18,7 @@ from wsitools.storage.factory import build_embedding_store_from_dir
 
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
 from xaiwsi.training.pathway_module import PathwayTraining
+from xaiwsi.training.run_config import data_args, resolve_cohort
 
 
 def _as_path(value: str | Path) -> Path:
@@ -41,29 +42,21 @@ def _resolve_dataset_paths(
     Explicit CLI values override the config. This makes old run configs that
     don't contain *_slides_root_dir usable with --slides-root-dir.
     """
-    data = config.get("data", {})
-
-    embedding_key = f"{dataset}_embedding_dir"
-    slides_key = f"{dataset}_slides_root_dir"
+    try:
+        cohort = resolve_cohort(config, dataset)
+    except KeyError as error:
+        raise click.ClickException(str(error)) from error
 
     if embedding_dir is None:
-        value = data.get(embedding_key)
-        if value is None:
-            raise click.ClickException(
-                f"{embedding_key!r} is missing from the run config. "
-                f"Pass --embedding-dir explicitly."
-            )
-        embedding_dir = _as_path(value)
+        embedding_dir = _as_path(cohort.embedding_dir)
 
     if slides_root_dir is None:
-        value = data.get(slides_key)
-        if value is None:
+        if cohort.slides_root_dir is None:
             raise click.ClickException(
-                f"{slides_key!r} is missing from this run config. "
-                f"This is expected for older runs; pass "
-                f"--slides-root-dir explicitly."
+                f"No slides root dir for {dataset!r} in this run config. "
+                f"This is expected for older runs; pass --slides-root-dir explicitly."
             )
-        slides_root_dir = _as_path(value)
+        slides_root_dir = _as_path(cohort.slides_root_dir)
 
     return embedding_dir, slides_root_dir
 
@@ -75,7 +68,7 @@ def _resolve_hallmark_gmt(
     if hallmark_gmt is not None:
         return hallmark_gmt
 
-    value = config.get("data", {}).get("hallmark_gmt")
+    value = data_args(config).get("hallmark_gmt")
 
     if value is None:
         raise click.ClickException(
@@ -312,11 +305,8 @@ def _jsonable(value: Any) -> Any:
 )
 @click.option(
     "--dataset",
-    type=click.Choice(
-        ["tcga", "cptac"],
-        case_sensitive=False,
-    ),
     required=True,
+    help="Cohort name from the run config (tcga/cptac for two-cohort configs).",
 )
 @click.option(
     "--slide-id",
@@ -418,7 +408,7 @@ def main(
     alpha: float,
     device: str,
 ) -> None:
-    dataset = dataset.lower()
+    dataset = dataset.lower()  # cohort names are lower case
 
     if all_pathways and pathways:
         raise click.ClickException("Use either --all-pathways or --pathway, not both.")

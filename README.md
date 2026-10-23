@@ -658,7 +658,54 @@ number of Hallmarks with rho > 0.3
 top Hallmarks by Spearman
 ```
 
+The test stage also writes `test_metrics.json` into the run directory (the parent of
+`checkpoints/`): summary and per-Hallmark metrics over all test cases (`all`) and per
+test cohort (`cohorts`). Collectors read this file instead of parsing the console log.
+
 CPTAC is intended as an **external test cohort**. Architecture and hyperparameter choices should therefore be made using TCGA training/validation only.
+
+---
+
+## Multi-cohort training
+
+`CohortPathwayDataModule` (selected with `data.class_path`, see
+`configs/training/pathway_cohorts.yaml`) trains on a list of cohorts and tests on
+others. A cohort is a name under `processed_root` with the usual layout
+(`rna/`, `metadata/wsi_slides.csv`, `wsi-embeddings/<embedding>/`); each path can be
+overridden in its entry.
+
+```yaml
+data:
+  class_path: xaiwsi.training.pathway_datamodule.CohortPathwayDataModule
+  init_args:
+    processed_root: /home/valentin/workspaces/xai-wsi/data/processed
+    embedding: h-optimus-1-fp16
+    train_cohorts:
+      - {name: tcga-luad, slides_root_dir: /mnt/nas7/data/TCGA_Lung_svs}
+      - {name: tcga-lusc, slides_root_dir: /mnt/nas7/data/TCGA_Lung_svs/LUSC}
+    test_cohorts:
+      - {name: cptac-luad, slides_root_dir: ..., zscore_reference: tcga-luad}
+    target_normalization: per_cohort   # or pooled
+    use_train_cohorts: null            # e.g. [tcga-luad] to train on a subset
+```
+
+- Each training cohort is split train/val with `split_cases` and the same seed, so the
+  TCGA-LUAD split is the stage-1 split whatever else is trained with it.
+- `per_cohort`: gene z-score statistics are fit on each cohort's training split, so
+  targets are relative to the cohort and the model gains nothing from telling LUAD from
+  LUSC. A test cohort uses the statistics of its `zscore_reference`. `pooled`: one set of
+  statistics over all training samples, which keeps between-cohort differences in the
+  targets.
+- Validation logs `val/<metric>` over all cohorts and `val/<cohort>/<metric>` per cohort;
+  the config selects checkpoints on `val/tcga-luad/median_spearman` so LUAD-only and
+  LUAD+LUSC runs are compared on the same cases. Test logs `test/<cohort>/<metric>`.
+- Configs without `data.class_path` still load the two-cohort `PathwayDataModule`
+  (cohorts named `tcga` and `cptac`).
+
+LUAD-only vs LUAD+LUSC: `scripts/pathway_cohorts.sh` runs the ridge probe on slide means
+(`xaiwsi.evaluation.cohort_probe`, the baseline to beat) and the tile-level model for each
+condition and seed; `xaiwsi.evaluation.collect_cohort_runs` collects the runs' best
+validation scores and `test_metrics.json` into a Markdown table.
 
 ---
 
@@ -741,13 +788,9 @@ The CLI loads the saved Lightning config, checkpoint, embedding store, original 
 
 ## New run config
 
-If the training config contains the WSI roots:
-
-```yaml
-data:
-  tcga_slides_root_dir: /path/to/tcga/slides
-  cptac_slides_root_dir: /path/to/cptac/slides
-```
+If the training config contains the WSI roots (`slides_root_dir` of each cohort, or
+`tcga_slides_root_dir` / `cptac_slides_root_dir` in two-cohort configs), `--dataset` takes
+the cohort name (`tcga-luad`, `cptac-luad`, ...; `tcga` / `cptac` for two-cohort configs):
 
 then:
 

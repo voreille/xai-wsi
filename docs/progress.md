@@ -26,6 +26,10 @@ Notes:
   no clinical data.
 - TCGA survival endpoints come from TCGA-CDR, CPTAC's from GDC CPTAC-3.
 
+TCGA-LUSC, added 2026-10-23 as extra training data (CPTAC-LSCC RNA downloaded, test only,
+not processed yet): 501 RNA samples (primary tumour), 512 diagnostic slides from 478 cases,
+476 cases with WSI + RNA. Tiling/embedding: `scripts/tile_embed_cohort.sh` (host, pending).
+
 ## Stage 1: WSI → 50 Hallmarks (mean-z targets)
 
 Fill these in from W&B; the runs are on the other server.

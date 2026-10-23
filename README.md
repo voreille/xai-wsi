@@ -137,6 +137,21 @@ python -m xaiwsi.preprocessing.tcga.rna_metadata
 python -m xaiwsi.preprocessing.cptac.rna_metadata
 ```
 
+### TCGA-LUSC (extra training cohort)
+
+The TCGA modules take the cohort through their arguments:
+
+```bash
+P=data/processed/tcga-lusc
+python -m xaiwsi.preprocessing.tcga.rna_metadata \
+    --manifest data/raw/tcga-lusc-rna/manifest.txt --raw-root data/raw/tcga-lusc-rna \
+    --output $P/metadata/rna_samples.csv
+python -m xaiwsi.preprocessing.tcga.rna \
+    --metadata $P/metadata/rna_samples.csv --raw-root data/raw/tcga-lusc-rna --output-dir $P/rna
+python -m xaiwsi.preprocessing.tcga.wsi_metadata \
+    --slides-root /mnt/nas7/data/TCGA_Lung_svs/LUSC --output $P/metadata/wsi_slides.csv
+```
+
 The CPTAC metadata pipeline uses the same harmonized GDC expression format, but does not assume TCGA barcode semantics.
 
 ---
@@ -293,6 +308,13 @@ for c in tcga-luad cptac-luad; do
 done
 ```
 
+
+For a whole cohort, `scripts/tile_embed_cohort.sh` runs tiling, H-optimus-1 embedding
+and the fp16 repack into `data/processed/<cohort>/` (run it on the host):
+
+```bash
+COHORT=tcga-lusc SLIDES=/mnt/nas7/data/TCGA_Lung_svs/LUSC GPU=0 bash scripts/tile_embed_cohort.sh
+```
 
 Example with H-optimus-1:
 

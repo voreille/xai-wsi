@@ -203,6 +203,12 @@ Overall survival (C-index, 95% CI):
 
 ## Decisions log
 
+- **2026-10-23:** exploration aim: learn from WSI/RNA pairs something more objective
+  than pathologist labels. Pattern/grade labels are used only to interpret and evaluate.
+  Public pattern labels are scarce: ANORAK (quality uncertain), DHMC (kept as test), CPTAC
+  dominant subtype on cBioPortal (110 cases, mostly acinar), predominant pattern in about
+  50 TCGA pathology reports (TCGA-Reports OCR). Grade: CPTAC GDC `tumor_grade` (219 of
+  228 cases), TCGA report text (about 300 cases), LungHist700 (45 patients, image level).
 - **2026-10-23:** final goal written down: WSI-only inference of the activity of the 50
   Hallmarks, as a continuous activity with uncertainty (not a high/low class),
   interpretable at tile level. The Tavernari et al. growth-pattern gene sets are not in the

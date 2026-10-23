@@ -13,7 +13,10 @@ Final goal: WSI-only inference that estimates the activity of the 50 Hallmark pa
 as a continuous activity with its uncertainty (predictive distribution/interval, not a
 high/low class), with tile-level interpretability. Tavernari et al. 2021 growth-pattern
 gene sets were the motivation but are not released, so they are on hold. Because Hallmarks
-are cross-cancer, more TCGA/CPTAC cohorts are an option against overfitting. RNA is used only at
+are cross-cancer, more TCGA/CPTAC cohorts are an option against overfitting.
+Exploration aim: mine from WSI/RNA pairs a description of morphology that is more objective
+than pathologist labels. Pathologist labels (growth pattern, grade, ANORAK/DHMC
+annotations) are references for interpretation and evaluation, not training targets. RNA is used only at
 training time (targets, alignment, fusion or distillation). The project is exploratory: try
 variants to learn what that predictor needs, but judge them by what a WSI-only model can
 use at test time. For example, a test-time step that needs CPTAC RNA (such as centering the

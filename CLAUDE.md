@@ -9,6 +9,14 @@ flow or CLIs.
 
 ## Research direction
 
+Final goal: WSI-only inference that estimates the activity of selected pathways (e.g. the
+probability that a pathway is high), with tile-level interpretability. RNA is used only at
+training time (targets, alignment, fusion or distillation). The project is exploratory: try
+variants to learn what that predictor needs, but judge them by what a WSI-only model can
+use at test time. For example, a test-time step that needs CPTAC RNA (such as centering the
+RNA embeddings per cohort) is a diagnostic only. Slide-only steps, such as per-cohort
+normalization of slide embeddings, are allowed at deployment.
+
 Planned stages (details in README "Research roadmap"); later stages depend on earlier ones
 working:
 1. WSI → RNA programs: Hallmarks (done), Tavernari et al. 2021 LUAD growth-pattern

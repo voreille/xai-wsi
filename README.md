@@ -14,7 +14,7 @@ The current pipeline supports:
 
 The main use case is to study whether morphology encoded by pathology foundation models predicts RNA-derived biological programs, while retaining tile-level interpretability.
 
-The longer-term goal is a multimodal (WSI + bulk RNA) model for LUAD that is interpretable at the tile and concept level, then possibly extending to other TCGA/CPTAC cancer types. See [Research roadmap](#research-roadmap).
+**Final goal:** at inference, use the WSI only and estimate the activity of selected pathways (e.g. the probability that a pathway is active/high), with tile- and concept-level interpretability. RNA is a training-time signal: it supplies the targets and can shape the slide representation (alignment, fusion, distillation), but a deployed model must not need RNA. The work is still exploratory: multimodal (WSI + bulk RNA) models, alignment and other cancer types are tested to learn what this WSI-only predictor needs. See [Research roadmap](#research-roadmap).
 
 ---
 

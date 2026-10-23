@@ -167,6 +167,12 @@ Overall survival (C-index, 95% CI):
 
 ## Decisions log
 
+- **2026-10-23:** final goal written down: WSI-only inference of pathway activity (e.g.
+  probability that a pathway is high), interpretable at tile level. RNA is training-time
+  only. So RNA-side per-cohort centering on CPTAC is a diagnostic (it shows the cohort shift
+  sits in the RNA embeddings), not part of the method. Shifts on the slide side can be
+  corrected at test time from slides alone. Still exploratory: alignment and fusion are
+  judged by how much they help the WSI-only predictor.
 - **2026-10-22:** H-optimus-1 stores repacked to fp16, uncompressed, with 1024-row chunks
   (`h-optimus-1-fp16/`, `wsi-repack` in wsitools, every slide verified). The alignment
   config uses them. Stage-1 configs still point at the original fp32 LZF stores.

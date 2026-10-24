@@ -114,10 +114,11 @@ Manifests come from the GDC `files` endpoint (`return_type: manifest`) with open
 |---|---|---|
 | TCGA-LUAD | `cases.project.project_id = TCGA-LUAD` | 601 |
 | TCGA-LUSC | `cases.project.project_id = TCGA-LUSC` | 562 |
+| TCGA-BRCA | `cases.project.project_id = TCGA-BRCA` | 1231 |
 | CPTAC-LUAD | `CPTAC-3`, `cases.primary_site = Bronchus and lung`, `cases.disease_type = Adenomas and Adenocarcinomas` | 446 |
 | CPTAC-LSCC | `CPTAC-3`, `cases.primary_site = Bronchus and lung`, `cases.disease_type = Squamous Cell Neoplasms` | 206 |
 
-Counts as of 2026-10-23. Each manifest is stored as `data/raw/<cohort>-rna/manifest.txt`.
+Counts as of 2026-10-23 (TCGA-BRCA: 2026-10-24). Each manifest is stored as `data/raw/<cohort>-rna/manifest.txt`.
 
 The raw GDC filenames are kept untouched. Dataset-specific metadata tables provide the mapping from GDC file IDs to cases, samples, and aliquots.
 
@@ -151,6 +152,13 @@ python -m xaiwsi.preprocessing.tcga.rna \
 python -m xaiwsi.preprocessing.tcga.wsi_metadata \
     --slides-root /mnt/nas7/data/TCGA_Lung_svs/LUSC --output $P/metadata/wsi_slides.csv
 ```
+
+### TCGA-BRCA (far training cohort, 2026-10-24)
+
+Same commands as TCGA-LUSC, with `P=data/processed/tcga-brca`, the raw RNA in
+`data/raw/tcga-brca-rna` and the slides in `/mnt/nas7/data/TCGA/TCGA_Breast` (symlinked as
+`data/raw/tcga-brca-wsi`; one folder per GDC file UUID). Result: 1106 primary-tumour RNA
+samples, 1085 DX slides from 1020 cases, 1016 cases with WSI + RNA.
 
 The CPTAC metadata pipeline uses the same harmonized GDC expression format, but does not assume TCGA barcode semantics.
 

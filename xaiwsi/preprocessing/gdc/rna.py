@@ -218,6 +218,13 @@ def build_metadata_mapping(
         metadata = metadata.drop_duplicates(
             subset=["file_id", "aliquot_uuid", "aliquot_id"]
         )
+        # GDC sometimes lists a sample twice for one file, once without portions
+        # (seen in TCGA-BRCA). Drop that placeholder row when the file also has a
+        # row with an aliquot.
+        has_aliquot = metadata.groupby("file_id")["aliquot_id"].transform(
+            lambda s: s.notna().any()
+        )
+        metadata = metadata[metadata["aliquot_id"].notna() | ~has_aliquot]
 
     df = manifest.merge(
         metadata,

@@ -1,5 +1,8 @@
-# Multi-cohort WSI -> Hallmarks: train/val on TCGA-LUAD + TCGA-LUSC, external test on
-# CPTAC-LUAD (and CPTAC-LSCC once its RNA is processed).
+# Multi-cohort WSI -> Hallmarks: train/val on TCGA-LUAD + TCGA-LUSC (+ TCGA-BRCA as a
+# far cohort), external test on CPTAC-LUAD (and CPTAC-LSCC once its RNA is processed).
+# Without data.init_args.use_train_cohorts all listed training cohorts are used; select a
+# subset, optionally capped, with e.g. --data.init_args.use_train_cohorts
+# '[tcga-luad,tcga-brca:381]' (scripts/pathway_cohorts.sh always sets it).
 #
 # Each training cohort is split train/val with the same seed (the TCGA-LUAD split is the
 # one of pathway_baseline.yaml). With target_normalization: per_cohort, gene z-score
@@ -44,6 +47,8 @@ data:
         slides_root_dir: /mnt/nas7/data/TCGA_Lung_svs
       - name: tcga-lusc
         slides_root_dir: /mnt/nas7/data/TCGA_Lung_svs/LUSC
+      - name: tcga-brca
+        slides_root_dir: /mnt/nas7/data/TCGA/TCGA_Breast
     test_cohorts:
       - name: cptac-luad
         slides_root_dir: /mnt/nas6/data/CPTAC/CPTAC-LUAD_v12/LUAD

@@ -1,5 +1,7 @@
 #!/bin/bash
-# Does adding training cohorts help WSI -> Hallmarks? LUAD-only vs LUAD+LUSC.
+# Does adding training cohorts help WSI -> Hallmarks? LUAD-only vs LUAD+LUSC (+ BRCA).
+# A condition is a comma-separated list of training cohorts; "<name>:<n>" caps that
+# cohort's training split at n cases (subset fixed by data.train_subset_seed, default 0).
 #
 # 1. Ridge probe on slide-mean embeddings for every condition and normalization (CPU, a
 #    few minutes; slide means are cached in outputs/cohort_probe/).
@@ -15,6 +17,8 @@
 #   GPUS="0 1" bash scripts/pathway_cohorts.sh
 #   STAGES=probes bash scripts/pathway_cohorts.sh
 #   NORMALIZATIONS="per_cohort pooled" SEEDS="0 1 2" bash scripts/pathway_cohorts.sh
+#   # far cohort, BRCA capped to the size of the LUSC training split:
+#   CONDITIONS="tcga-luad,tcga-brca:381 tcga-luad,tcga-lusc,tcga-brca" bash scripts/pathway_cohorts.sh
 set -euo pipefail
 
 CONFIG=${CONFIG:-configs/training/pathway_cohorts.yaml}
@@ -41,6 +45,7 @@ fi
 run_one() {
     local gpu=$1 condition=$2 normalization=$3 seed=$4
     local short=${condition//tcga-/}
+    short=${short//:/}  # W&B ids can't contain ':'
     local id="coh-${TAG}-${short//,/+}-${normalization//_/}-s${seed}"
     local run_dir="$RUN_ROOT/$id"
     if compgen -G "$run_dir/checkpoints/epoch=*.ckpt" > /dev/null; then

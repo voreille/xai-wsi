@@ -19,7 +19,7 @@ all training samples together and used everywhere.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
@@ -43,6 +43,9 @@ class CohortSpec:
     # Test cohorts with per-cohort normalization: the training cohort whose z-score
     # statistics define their targets. Not needed with a single training cohort.
     zscore_reference: str | None = None
+    # Training cohorts: keep at most this many training-split cases (random subset,
+    # seeded by train_subset_seed). Val stays whole. Compares cohorts at equal size.
+    max_train_cases: int | None = None
     rna_dir: str | None = None
     wsi_metadata: str | None = None
     embedding_dir: str | None = None
@@ -69,6 +72,7 @@ class CohortSpec:
             embedding_dir=path(self.embedding_dir, f"wsi-embeddings/{embedding}"),
             slides_root_dir=Path(self.slides_root_dir) if self.slides_root_dir else None,
             zscore_reference=self.zscore_reference,
+            max_train_cases=self.max_train_cases,
         )
 
 
@@ -80,6 +84,7 @@ class ResolvedCohort:
     embedding_dir: Path
     slides_root_dir: Path | None
     zscore_reference: str | None
+    max_train_cases: int | None = None
 
 
 @dataclass
@@ -106,13 +111,26 @@ def select_cohorts(
     train_names: list[str],
 ) -> tuple[list[CohortSpec], list[CohortSpec]]:
     """Keep the training cohorts named in `train_names` (in that order) and the test
-    cohorts whose `zscore_reference` is unset or one of them."""
+    cohorts whose `zscore_reference` is unset or one of them.
+
+    A name may carry a cap on its training cases, ``"<name>:<max_train_cases>"``
+    (e.g. ``"tcga-brca:381"``), which overrides the spec's ``max_train_cases``.
+    """
     by_name = {c.name: c for c in train_cohorts}
-    unknown = [n for n in train_names if n not in by_name]
-    if unknown:
-        raise ValueError(f"Unknown training cohorts {unknown}; have {list(by_name)}.")
-    test = [c for c in test_cohorts if c.zscore_reference in (None, *train_names)]
-    return [by_name[n] for n in train_names], test
+    selected = []
+    for entry in train_names:
+        name, _, cap = entry.partition(":")
+        if name not in by_name:
+            raise ValueError(f"Unknown training cohort {name!r}; have {list(by_name)}.")
+        spec = by_name[name]
+        if cap:
+            if not cap.isdigit() or int(cap) < 1:
+                raise ValueError(f"Bad training-case cap in {entry!r}; expected <name>:<positive int>.")
+            spec = replace(spec, max_train_cases=int(cap))
+        selected.append(spec)
+    names = [c.name for c in selected]
+    test = [c for c in test_cohorts if c.zscore_reference in (None, *names)]
+    return selected, test
 
 
 def load_cohort(cohort: ResolvedCohort) -> LoadedCohort:
@@ -144,8 +162,9 @@ def build_pathway_splits(
 
     Each training cohort is split into train/val with ``split_cases`` (same seed for all,
     so a cohort's split doesn't depend on which other cohorts are trained with it).
-    ``train_fraction`` subsamples every training split (learning curves); val and test
-    stay fixed and z-score statistics are fit on the subsample only.
+    ``train_fraction`` subsamples every training split (learning curves), then a cohort's
+    ``max_train_cases`` caps its training split; both use ``train_subset_seed``. Val and
+    test stay fixed and z-score statistics are fit on the subsample only.
     """
     if not train_cohorts:
         raise ValueError("At least one training cohort is required.")
@@ -166,6 +185,9 @@ def build_pathway_splits(
                 n=max(int(round(train_fraction * len(train_pairs))), 1),
                 random_state=train_subset_seed,
             )
+        cap = loaded.cohort.max_train_cases
+        if cap is not None and len(train_pairs) > cap:
+            train_pairs = train_pairs.sample(n=cap, random_state=train_subset_seed)
         split_pairs[loaded.cohort.name] = (train_pairs, val_pairs)
 
     def train_expression(loaded: LoadedCohort) -> pd.DataFrame:

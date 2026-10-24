@@ -691,11 +691,17 @@ data:
     train_cohorts:
       - {name: tcga-luad, slides_root_dir: /mnt/nas7/data/TCGA_Lung_svs}
       - {name: tcga-lusc, slides_root_dir: /mnt/nas7/data/TCGA_Lung_svs/LUSC}
+      - {name: tcga-brca, slides_root_dir: /mnt/nas7/data/TCGA/TCGA_Breast}
     test_cohorts:
       - {name: cptac-luad, slides_root_dir: ..., zscore_reference: tcga-luad}
     target_normalization: per_cohort   # or pooled
     use_train_cohorts: null            # e.g. [tcga-luad] to train on a subset
 ```
+
+- `use_train_cohorts` entries can cap a cohort's training split, `<name>:<n>` (e.g.
+  `tcga-brca:381`, the size of the LUSC training split), so cohorts are compared at equal
+  size. The subset is drawn with `train_subset_seed`; val stays whole. The cap can also be
+  set as `max_train_cases` on the cohort.
 
 - Each training cohort is split train/val with `split_cases` and the same seed, so the
   TCGA-LUAD split is the stage-1 split whatever else is trained with it.
@@ -710,7 +716,8 @@ data:
 - Configs without `data.class_path` still load the two-cohort `PathwayDataModule`
   (cohorts named `tcga` and `cptac`).
 
-LUAD-only vs LUAD+LUSC: `scripts/pathway_cohorts.sh` runs the ridge probe on slide means
+LUAD-only vs LUAD+LUSC (or + BRCA, `CONDITIONS="tcga-luad,tcga-brca:381 ..."`):
+`scripts/pathway_cohorts.sh` runs the ridge probe on slide means
 (`xaiwsi.evaluation.cohort_probe`, the baseline to beat) and the tile-level model for each
 condition and seed; `xaiwsi.evaluation.collect_cohort_runs` collects the runs' best
 validation scores and `test_metrics.json` into a Markdown table.

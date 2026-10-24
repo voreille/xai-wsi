@@ -182,7 +182,7 @@ class CohortPathwayDataModule(PathwayDataModule):
 
     ``use_train_cohorts`` trains on a subset of ``train_cohorts`` by name (one config for
     LUAD-only and LUAD+LUSC runs); test cohorts whose ``zscore_reference`` is dropped are
-    skipped.
+    skipped. ``"<name>:<n>"`` also caps that cohort's training split at n cases.
     """
 
     def __init__(

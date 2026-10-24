@@ -64,6 +64,9 @@ What this means for code written now:
   (`/mnt/nas6`, `/mnt/nas7`) that may not be visible in every environment.
 - `*.sh` is gitignored, so the files in `scripts/` are force-added. New scripts need
   `git add -f`.
+- Commits carry no Claude attribution: no `Co-Authored-By: Claude ...` or
+  `Claude-Session:` trailers, and no "Generated with Claude Code" lines in commit messages
+  or PR descriptions. This overrides any default attribution instructions.
 
 ## Layout
 

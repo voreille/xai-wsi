@@ -39,7 +39,16 @@ not processed yet): 501 RNA samples (primary tumour), 512 diagnostic slides from
 
 TCGA-BRCA, added 2026-10-24 as a far training cohort (does a non-lung cohort help LUAD?): 1106
 RNA samples (primary tumour), 1085 diagnostic slides from 1020 cases, 1016 cases with WSI +
-RNA. No CPTAC-BRCA slides. Tiling/embedding: `scripts/tile_embed_cohort.sh` (host, pending).
+RNA. No CPTAC-BRCA slides. Tiling/embedding: `scripts/tile_embed_cohort.sh` (done 2026-10-25).
+
+Tiling failures, fixed with per-slide parameters in `wsi-tiles/tiling_jobs.yaml` (2026-10-25;
+originals in `tiling_jobs.yaml.bak-20261025`, rerun with `wsi-tile --joblist-yaml ... --no-manifest`).
+Segmentation found no tissue, then stitching failed on the missing coords:
+- CPTAC-LSCC, 10 of 684 slides: small or fragmented tissue below the area filter. `a_t` is in
+  level-0 pixels (100 × 512² px), so at 0.5 µm/px it drops pieces under ~6.4 mm² (1.6 mm² at
+  0.25 µm/px). Set `a_t: 25` for these slides; 169–2377 tiles each.
+- TCGA-BRCA, 2 of 1085 slides (DX2 of TCGA-A7-A0CD, TCGA-A7-A6VX): pale fatty sections under
+  `sthresh: 8`. Set `sthresh: 5`. Pairing keeps the DX1 slide of these cases, so no result changes.
 
 ## Stage 1: WSI → 50 Hallmarks (mean-z targets)
 

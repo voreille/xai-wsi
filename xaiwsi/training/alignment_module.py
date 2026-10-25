@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
+import math
+
 import lightning as L
 import torch
 
 from xaiwsi.metrics.retrieval import retrieval_metrics
 from xaiwsi.models.alignment import ContrastiveAligner, symmetric_info_nce
+from xaiwsi.training.run_config import run_dir_of
 
 # retrieval_metrics directions: query = slides, gallery = RNA.
 DIRECTION_NAMES = {"q2g": "wsi2rna", "g2q": "rna2wsi"}
@@ -103,6 +107,20 @@ class AlignmentTraining(L.LightningModule):
                 )
             print(f"  chance: R@1 {metrics['chance_r1']:.3f}  R@5 {metrics['chance_r5']:.3f}  "
                   f"R@10 {metrics['chance_r10']:.3f}  median rank {n / 2:.0f}")
+            self._write_test_metrics(metrics)
+
+    def _write_test_metrics(self, metrics: dict[str, float]) -> None:
+        """Write `test_metrics.json` (test retrieval metrics) into the run directory."""
+        run_dir = run_dir_of(self.trainer)
+        ckpt_path = self.trainer.ckpt_path
+        payload = {
+            "ckpt_path": str(ckpt_path) if ckpt_path else None,
+            "metrics": {k: (float(v) if math.isfinite(float(v)) else None) for k, v in metrics.items()},
+        }
+        run_dir.mkdir(parents=True, exist_ok=True)
+        path = run_dir / "test_metrics.json"
+        path.write_text(json.dumps(payload, indent=2))
+        print(f"Test metrics: {path}")
 
     def configure_optimizers(self):
         # As in CLIP: no weight decay on biases, gains and the logit scale.

@@ -763,6 +763,15 @@ uv run python -m xaiwsi.training.alignment_cli test \
     --ckpt_path runs/alignment/xai-wsi/<run-id>/checkpoints/<best>.ckpt
 ```
 
+Regularization sweep (slide encoder × tile dropout × weight decay × seed, each run
+tested on CPTAC, which writes `<run-dir>/test_metrics.json`):
+
+```bash
+GPUS="0 1" bash scripts/alignment_sweep.sh
+uv run python -m xaiwsi.evaluation.collect_alignment_runs \
+    --run-root runs/alignment/xai-wsi --prefix aln-<tag> --output-dir outputs/alignment_runs
+```
+
 - **Batches** are lists of whole-slide bags (`collate_bags`): no padding and no tile
   sampling. Each bag is pooled separately, and the B slide embeddings are stacked, so B
   is the number of in-batch negatives. Training uses `drop_last` so B stays fixed.

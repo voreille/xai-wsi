@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from xaiwsi.evaluation.predictions import prediction_frame
 from xaiwsi.metrics.pathways import compute_pathway_metrics, format_pathway_metrics
 from xaiwsi.models.pathway import PathwayPredictor
+from xaiwsi.training.run_config import run_dir_of
 
 
 class PathwayTraining(L.LightningModule):
@@ -118,7 +119,7 @@ class PathwayTraining(L.LightningModule):
                     continue  # one test cohort: the pooled table repeats it
                 title = "All test cohorts" if name is None else f"{name} external test"
                 print(format_pathway_metrics(title, summary, by_pathway, top_k=self.top_k_to_print))
-            run_dir = self._run_dir()
+            run_dir = run_dir_of(self.trainer)
             self._write_test_metrics(run_dir, results)
             self._write_test_predictions(run_dir)
 
@@ -148,14 +149,6 @@ class PathwayTraining(L.LightningModule):
             self._log_summary(key, summary, prog_bar=cohort is None)
             self._log_per_pathway(key, by_pathway)
         return results
-
-    def _run_dir(self) -> Path:
-        """The run directory: the parent of the checkpoint's `checkpoints/` dir, else the
-        trainer's log dir."""
-        ckpt_path = self.trainer.ckpt_path
-        if ckpt_path and Path(ckpt_path).parent.name == "checkpoints":
-            return Path(ckpt_path).parent.parent
-        return Path(self.trainer.log_dir or self.trainer.default_root_dir)
 
     def _write_test_metrics(self, run_dir: Path, results) -> None:
         """Write `test_metrics.json` into the run directory."""

@@ -15,7 +15,7 @@ are skipped for that condition. The probe is the baseline the tile-level models 
 Writes ``probe_metrics.csv`` (one row per condition, normalization, split and cohort),
 ``probe_metrics.md`` (Markdown table with the generating command, for progress.md) and
 ``predictions/<condition>__<normalization>.parquet``: per-case predictions and targets of
-the val and test cohorts (see ``prediction_frame``), the input of
+the val and test cohorts (see ``xaiwsi.evaluation.predictions``), the input of
 ``xaiwsi.evaluation.paired_bootstrap``.
 """
 
@@ -32,6 +32,7 @@ import yaml
 
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
 from xaiwsi.evaluation.learning_curve import make_probe, slide_means
+from xaiwsi.evaluation.predictions import prediction_frame
 from xaiwsi.metrics.pathways import compute_pathway_metrics
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
 from xaiwsi.training.run_config import data_args
@@ -51,16 +52,6 @@ def markdown_table(results: pd.DataFrame) -> str:
     lines = ["| " + " | ".join(results.columns) + " |", "|" + "---|" * len(results.columns)]
     lines += ["| " + " | ".join(row) + " |" for row in cells.itertuples(index=False)]
     return "\n".join(lines)
-
-
-def prediction_frame(
-    case_ids, cohort: str, split: str, y_true: np.ndarray, y_pred: np.ndarray, names: list[str]
-) -> pd.DataFrame:
-    """One row per case: case_id, cohort, split, true__<pathway>..., pred__<pathway>..."""
-    frame = pd.DataFrame({"case_id": list(case_ids), "cohort": cohort, "split": split})
-    true = pd.DataFrame(y_true, columns=[f"true__{n}" for n in names])
-    pred = pd.DataFrame(y_pred, columns=[f"pred__{n}" for n in names])
-    return pd.concat([frame, true, pred], axis=1)
 
 
 def main() -> None:

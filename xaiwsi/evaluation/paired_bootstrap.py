@@ -13,6 +13,15 @@ z-score reference), otherwise the comparison is refused.
         --cohort cptac-luad --split test \\
         --output outputs/cohort_probe_brca/bootstrap_cptac-luad
 
+A condition can also be a quoted glob over the runs (seeds) of a tile-level model, whose
+test stage writes ``<run-dir>/test_predictions.parquet``; its metric is then the mean over
+runs, on the same resampled cases:
+
+    uv run python -m xaiwsi.evaluation.paired_bootstrap \\
+        --baseline 'runs/pathways/xai-wsi/coh-1024-luad+lusc-percohort-s*/test_predictions.parquet' \\
+        --candidates 'runs/pathways/xai-wsi/coh-1024-luad+lusc+brca-percohort-s*/test_predictions.parquet' \\
+        --cohort cptac-luad --split test --output outputs/cohort_runs/bootstrap/vs_luadlusc_cptac-luad
+
 Writes ``<output>.csv`` and ``<output>.md`` (Markdown table with the generating command).
 For each metric (median over pathways of the per-pathway Spearman or R²): A, B, B − A,
 the 95% percentile interval of B − A and the fraction of resamples with B − A ≤ 0.
@@ -21,6 +30,7 @@ the 95% percentile interval of B − A and the fraction of resamples with B − 
 from __future__ import annotations
 
 import argparse
+import glob
 import shlex
 import sys
 from pathlib import Path
@@ -78,6 +88,14 @@ def median_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
 METRICS = ["median_spearman", "median_r2"]
 
 
+def check_metrics(y_true: np.ndarray, y_pred: np.ndarray, names: list[str], path: Path) -> None:
+    """The vectorized metrics must match the reference implementation."""
+    mine = median_metrics(y_true[None], y_pred[None])[0]
+    ref, _ = compute_pathway_metrics(y_true, y_pred, names)
+    if not np.allclose(mine, [ref["median_spearman"], ref["median_r2"]]):
+        raise RuntimeError(f"{path}: bootstrap metrics {mine} differ from compute_pathway_metrics {ref}.")
+
+
 def paired_bootstrap(
     y_true: np.ndarray,
     pred_a: np.ndarray,
@@ -87,23 +105,72 @@ def paired_bootstrap(
     seed: int,
     batch: int = 100,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Point estimates of A and B, shape (2,), and bootstrap differences B − A, (n_boot, 2)."""
+    """Point estimates of A and B, shape (2,), and bootstrap differences B − A, (n_boot, 2).
+
+    pred_a, pred_b: (S, N, P), the predictions of S runs (seeds) of a condition. A
+    condition's metric is the mean over its runs of the median metrics, on the same
+    resampled cases for all runs of both conditions. With S = 1 this is the plain paired
+    bootstrap."""
     n = len(y_true)
-    stack = np.stack([y_true, pred_a, pred_b])  # (3, N, P)
-    point = [median_metrics(y_true[None], p[None])[0] for p in (pred_a, pred_b)]
+
+    def score(idx: np.ndarray | None, preds: np.ndarray) -> np.ndarray:
+        t = y_true[None] if idx is None else y_true[idx]
+        return np.mean(
+            [median_metrics(t, p[None] if idx is None else p[idx]) for p in preds], axis=0
+        )
+
+    point_a, point_b = score(None, pred_a)[0], score(None, pred_b)[0]
     rng = np.random.default_rng(seed)
     deltas = []
     for start in range(0, n_boot, batch):
         idx = rng.integers(0, n, size=(min(batch, n_boot - start), n))
-        t, a, b = (stack[k][idx] for k in range(3))  # (b, N, P)
-        deltas.append(median_metrics(t, b) - median_metrics(t, a))
-    return point[0], point[1], np.concatenate(deltas)
+        deltas.append(score(idx, pred_b) - score(idx, pred_a))
+    return point_a, point_b, np.concatenate(deltas)
+
+
+def expand(pattern: str) -> list[Path]:
+    """A prediction file, or a glob over the runs (seeds) of one condition."""
+    if not glob.has_magic(pattern):
+        return [Path(pattern)]
+    paths = sorted(Path(p) for p in glob.glob(pattern))
+    if not paths:
+        raise SystemExit(f"No prediction files match {pattern!r}.")
+    return paths
+
+
+def label(pattern: str) -> str:
+    """Condition name: the file stem, or the run directory for `test_predictions.parquet`."""
+    path = Path(pattern)
+    return path.parent.name if path.name == "test_predictions.parquet" else path.stem
+
+
+def load_condition(
+    pattern: str, cohort: str, split: str
+) -> tuple[pd.DataFrame, np.ndarray, list[Path]]:
+    """(targets, predictions of shape (S, N, P), files) of one condition's runs."""
+    paths = expand(pattern)
+    true, first = load_predictions(paths[0], cohort, split)
+    preds = [first]
+    for path in paths[1:]:
+        true_k, pred_k = load_predictions(path, cohort, split)
+        check_same_targets(true, true_k, path)
+        preds.append(pred_k)
+    return true, np.stack([p.to_numpy() for p in preds]), paths
+
+
+def check_same_targets(reference: pd.DataFrame, other: pd.DataFrame, path: Path) -> None:
+    if not (reference.index.equals(other.index) and reference.columns.equals(other.columns)):
+        raise SystemExit(f"{path}: cases or pathways differ from the baseline.")
+    if not np.allclose(reference.to_numpy(), other.to_numpy()):
+        raise SystemExit(f"{path}: targets differ from the baseline (other z-score reference?).")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--baseline", type=Path, required=True, help="predictions of condition A")
-    parser.add_argument("--candidates", type=Path, nargs="+", required=True, help="conditions B")
+    parser.add_argument(
+        "--baseline", required=True, help="predictions of condition A (file or quoted glob over seeds)"
+    )
+    parser.add_argument("--candidates", nargs="+", required=True, help="conditions B (files or globs)")
     parser.add_argument("--cohort", required=True)
     parser.add_argument("--split", default="test", choices=["val", "test"])
     parser.add_argument("--n-boot", type=int, default=2000)
@@ -111,32 +178,26 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True, help="writes <output>.csv/.md")
     args = parser.parse_args()
 
-    def label(path: Path) -> str:
-        return path.stem
+    true_a, preds_a, paths_a = load_condition(args.baseline, args.cohort, args.split)
+    names = list(true_a.columns)
+    y = true_a.to_numpy()
+    for path, pred in zip(paths_a, preds_a, strict=True):
+        check_metrics(y, pred, names, path)
 
-    true_a, pred_a = load_predictions(args.baseline, args.cohort, args.split)
     rows = []
-    for path in args.candidates:
-        true_b, pred_b = load_predictions(path, args.cohort, args.split)
-        if not (true_a.index.equals(true_b.index) and true_a.columns.equals(true_b.columns)):
-            raise SystemExit(f"{path}: cases or pathways differ from the baseline.")
-        if not np.allclose(true_a.to_numpy(), true_b.to_numpy()):
-            raise SystemExit(f"{path}: targets differ from the baseline (other z-score reference?).")
-        y, a, b = true_a.to_numpy(), pred_a.to_numpy(), pred_b.to_numpy()
+    for pattern in args.candidates:
+        true_b, preds_b, paths_b = load_condition(pattern, args.cohort, args.split)
+        check_same_targets(true_a, true_b, paths_b[0])
+        for path, pred in zip(paths_b, preds_b, strict=True):
+            check_metrics(y, pred, names, path)
 
-        # The vectorized metrics must match the reference implementation.
-        names = list(true_a.columns)
-        for pred, mine in zip((a, b), median_metrics(y[None].repeat(2, 0), np.stack([a, b])), strict=True):
-            ref, _ = compute_pathway_metrics(y, pred, names)
-            if not np.allclose(mine, [ref["median_spearman"], ref["median_r2"]]):
-                raise RuntimeError(f"Bootstrap metrics {mine} differ from compute_pathway_metrics {ref}.")
-
-        point_a, point_b, deltas = paired_bootstrap(y, a, b, n_boot=args.n_boot, seed=args.seed)
+        point_a, point_b, deltas = paired_bootstrap(y, preds_a, preds_b, n_boot=args.n_boot, seed=args.seed)
         for k, metric in enumerate(METRICS):
             rows.append(
                 {
                     "baseline": label(args.baseline),
-                    "candidate": label(path),
+                    "candidate": label(pattern),
+                    "runs": f"{len(paths_a)}/{len(paths_b)}",
                     "cohort": args.cohort,
                     "split": args.split,
                     "n": len(y),
@@ -164,7 +225,8 @@ def main() -> None:
     table = markdown_table(results)
     args.output.with_suffix(".md").write_text(
         f"Paired bootstrap over {args.cohort} {args.split} cases ({args.n_boot} resamples, "
-        f"seed {args.seed}); delta = candidate − baseline, 95% percentile interval. "
+        f"seed {args.seed}); delta = candidate − baseline, 95% percentile interval; "
+        f"runs = baseline/candidate runs averaged per resample. "
         f"Generated by:\n\n```bash\n{command}\n```\n\n{table}\n"
     )
     print(table)

@@ -9,6 +9,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from xaiwsi.evaluation.predictions import prediction_frame
 from xaiwsi.metrics.pathways import compute_pathway_metrics, format_pathway_metrics
 from xaiwsi.models.pathway import PathwayPredictor
 
@@ -39,6 +40,7 @@ class PathwayTraining(L.LightningModule):
         self._test_targets: list[torch.Tensor] = []
         self._test_predictions: list[torch.Tensor] = []
         self._test_cohorts: list[str] = []
+        self._test_case_ids: list[str] = []
 
     def forward(self, embeddings: torch.Tensor):
         return self.predictor(embeddings)
@@ -90,6 +92,7 @@ class PathwayTraining(L.LightningModule):
         self._test_targets.clear()
         self._test_predictions.clear()
         self._test_cohorts.clear()
+        self._test_case_ids.clear()
 
     def test_step(self, batch, batch_idx):
         output = self(batch["embeddings"])
@@ -99,6 +102,7 @@ class PathwayTraining(L.LightningModule):
         self._test_targets.append(target.detach().cpu())
         self._test_predictions.append(pred.detach().cpu())
         self._test_cohorts.extend(_batch_cohorts(batch, len(target)))
+        self._test_case_ids.extend(_batch_case_ids(batch, len(target)))
 
     def on_test_epoch_end(self) -> None:
         if not self._test_targets:
@@ -114,7 +118,9 @@ class PathwayTraining(L.LightningModule):
                     continue  # one test cohort: the pooled table repeats it
                 title = "All test cohorts" if name is None else f"{name} external test"
                 print(format_pathway_metrics(title, summary, by_pathway, top_k=self.top_k_to_print))
-            self._write_test_metrics(results)
+            run_dir = self._run_dir()
+            self._write_test_metrics(run_dir, results)
+            self._write_test_predictions(run_dir)
 
     def _evaluate(
         self,
@@ -143,14 +149,17 @@ class PathwayTraining(L.LightningModule):
             self._log_per_pathway(key, by_pathway)
         return results
 
-    def _write_test_metrics(self, results) -> None:
-        """Write `test_metrics.json` into the run directory (the parent of the
-        checkpoint's `checkpoints/` dir, else the trainer's log dir)."""
+    def _run_dir(self) -> Path:
+        """The run directory: the parent of the checkpoint's `checkpoints/` dir, else the
+        trainer's log dir."""
         ckpt_path = self.trainer.ckpt_path
         if ckpt_path and Path(ckpt_path).parent.name == "checkpoints":
-            run_dir = Path(ckpt_path).parent.parent
-        else:
-            run_dir = Path(self.trainer.log_dir or self.trainer.default_root_dir)
+            return Path(ckpt_path).parent.parent
+        return Path(self.trainer.log_dir or self.trainer.default_root_dir)
+
+    def _write_test_metrics(self, run_dir: Path, results) -> None:
+        """Write `test_metrics.json` into the run directory."""
+        ckpt_path = self.trainer.ckpt_path
 
         def clean(value: float) -> float | None:
             return None if not math.isfinite(value) else float(value)
@@ -174,6 +183,18 @@ class PathwayTraining(L.LightningModule):
         path = run_dir / "test_metrics.json"
         path.write_text(json.dumps(payload, indent=2))
         print(f"Test metrics: {path}")
+
+    def _write_test_predictions(self, run_dir: Path) -> None:
+        """Write `test_predictions.parquet` into the run directory: one row per test case
+        (columns of `prediction_frame`), the input of `xaiwsi.evaluation.paired_bootstrap`."""
+        y_true = torch.cat(self._test_targets, dim=0).numpy()
+        y_pred = torch.cat(self._test_predictions, dim=0).numpy()
+        names = self._pathway_names(y_true.shape[1])
+        frame = prediction_frame(self._test_case_ids, self._test_cohorts, "test", y_true, y_pred, names)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        path = run_dir / "test_predictions.parquet"
+        frame.to_parquet(path, index=False)
+        print(f"Test predictions: {path}")
 
     def _pathway_names(self, n_outputs: int) -> list[str]:
         datamodule = self.trainer.datamodule
@@ -230,3 +251,11 @@ def _batch_cohorts(batch, n: int) -> list[str]:
     if cohorts is None:
         return [""] * n
     return [str(c) for c in cohorts]
+
+
+def _batch_case_ids(batch, n: int) -> list[str]:
+    """Case ids of a batch; empty ids for datasets without them."""
+    case_ids = batch.get("case_id")
+    if case_ids is None:
+        return [""] * n
+    return [str(c) for c in case_ids]

@@ -709,7 +709,7 @@ data:
     processed_root: /home/valentin/workspaces/xai-wsi/data/processed
     embedding: h-optimus-1-fp16
     train_cohorts:
-      - {name: tcga-luad, slides_root_dir: /mnt/nas7/data/TCGA_Lung_svs}
+      - {name: tcga-luad, slides_root_dir: /mnt/nas7/data/TCGA_Lung_svs/LUAD}
       - {name: tcga-lusc, slides_root_dir: /mnt/nas7/data/TCGA_Lung_svs/LUSC}
       - {name: tcga-brca, slides_root_dir: /mnt/nas7/data/TCGA/TCGA_Breast}
     test_cohorts:

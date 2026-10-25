@@ -721,6 +721,9 @@ LUAD-only vs LUAD+LUSC (or + BRCA, `CONDITIONS="tcga-luad,tcga-brca:381 ..."`):
 (`xaiwsi.evaluation.cohort_probe`, the baseline to beat) and the tile-level model for each
 condition and seed; `xaiwsi.evaluation.collect_cohort_runs` collects the runs' best
 validation scores and `test_metrics.json` into a Markdown table.
+`cohort_probe` also writes per-case predictions (`<output-dir>/predictions/`);
+`xaiwsi.evaluation.paired_bootstrap` compares two conditions on the same resampled
+cases (95% CI of the difference in median Spearman and median R²).
 
 ---
 

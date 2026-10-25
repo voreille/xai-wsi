@@ -12,8 +12,11 @@ are skipped for that condition. The probe is the baseline the tile-level models 
         --normalizations per_cohort pooled \\
         --output-dir outputs/cohort_probe
 
-Writes ``probe_metrics.csv`` (one row per condition, normalization, split and cohort)
-and ``probe_metrics.md`` (Markdown table with the generating command, for progress.md).
+Writes ``probe_metrics.csv`` (one row per condition, normalization, split and cohort),
+``probe_metrics.md`` (Markdown table with the generating command, for progress.md) and
+``predictions/<condition>__<normalization>.parquet``: per-case predictions and targets of
+the val and test cohorts (see ``prediction_frame``), the input of
+``xaiwsi.evaluation.paired_bootstrap``.
 """
 
 from __future__ import annotations
@@ -50,6 +53,16 @@ def markdown_table(results: pd.DataFrame) -> str:
     return "\n".join(lines)
 
 
+def prediction_frame(
+    case_ids, cohort: str, split: str, y_true: np.ndarray, y_pred: np.ndarray, names: list[str]
+) -> pd.DataFrame:
+    """One row per case: case_id, cohort, split, true__<pathway>..., pred__<pathway>..."""
+    frame = pd.DataFrame({"case_id": list(case_ids), "cohort": cohort, "split": split})
+    true = pd.DataFrame(y_true, columns=[f"true__{n}" for n in names])
+    pred = pd.DataFrame(y_pred, columns=[f"pred__{n}" for n in names])
+    return pd.concat([frame, true, pred], axis=1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, required=True, help="CohortPathwayDataModule config")
@@ -65,6 +78,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    (args.output_dir / "predictions").mkdir(exist_ok=True)
 
     data = data_args(yaml.safe_load(args.config.read_text()))
     if "train_cohorts" not in data:
@@ -109,10 +123,15 @@ def main() -> None:
 
             x_train, y_train = map(np.concatenate, zip(*[xy(p) for p in splits["train"]], strict=True))
             model = make_probe().fit(x_train, y_train)
+            predictions = []
             for split in ("val", "test"):
                 for part in splits[split]:
                     x, y = xy(part)
-                    summary, _ = compute_pathway_metrics(y, model.predict(x), names)
+                    y_pred = model.predict(x)
+                    predictions.append(
+                        prediction_frame(part.pairs["case_id"], part.cohort, split, y, y_pred, names)
+                    )
+                    summary, _ = compute_pathway_metrics(y, y_pred, names)
                     rows.append(
                         {
                             "condition": condition,
@@ -131,6 +150,9 @@ def main() -> None:
                         f"median rho {summary['median_spearman']:.3f} "
                         f"median R² {summary['median_r2']:.3f}"
                     )
+            pd.concat(predictions, ignore_index=True).to_parquet(
+                args.output_dir / "predictions" / f"{condition}__{normalization}.parquet"
+            )
 
     results = pd.DataFrame(rows)
     check_ranges(results)

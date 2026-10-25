@@ -35,8 +35,9 @@ from xaiwsi.rna.pathways.scoring import fit_gene_zscore_stats, score_mean_z
 RIDGE_ALPHAS = np.logspace(-2, 6, 17)
 
 
-def slide_means(store, slide_ids: list[str], cache: Path) -> pd.DataFrame:
-    """Mean tile embedding per slide, cached as parquet."""
+def slide_means(store, slide_ids: list[str], cache: Path, tile_masks=None) -> pd.DataFrame:
+    """Mean tile embedding per slide, cached as parquet. ``tile_masks``: optional
+    callable slide_id -> boolean mask of the tiles to average (all tiles if None)."""
     if cache.exists():
         means = pd.read_parquet(cache)
         if set(slide_ids) <= set(means.index):
@@ -44,7 +45,13 @@ def slide_means(store, slide_ids: list[str], cache: Path) -> pd.DataFrame:
     rows = {}
     for slide_id in tqdm(slide_ids, desc=f"slide means ({cache.stem})"):
         tiles, _, _ = store.load(slide_id)
-        rows[slide_id] = np.asarray(tiles, dtype=np.float32).mean(axis=0)
+        tiles = np.asarray(tiles, dtype=np.float32)
+        if tile_masks is not None:
+            mask = tile_masks(slide_id)
+            if len(mask) != len(tiles):
+                raise ValueError(f"{slide_id}: tile mask has {len(mask)} entries, store {len(tiles)}.")
+            tiles = tiles[mask]
+        rows[slide_id] = tiles.mean(axis=0)
     means = pd.DataFrame.from_dict(rows, orient="index")
     means.columns = [f"f{i}" for i in range(means.shape[1])]
     means.to_parquet(cache)

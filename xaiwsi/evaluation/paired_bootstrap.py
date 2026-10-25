@@ -22,6 +22,9 @@ runs, on the same resampled cases:
         --candidates 'runs/pathways/xai-wsi/coh-1024-luad+lusc+brca-percohort-s*/test_predictions.parquet' \\
         --cohort cptac-luad --split test --output outputs/cohort_runs/bootstrap/vs_luadlusc_cptac-luad
 
+A condition can be prefixed with ``<label>=`` to name it in the table (e.g. two files
+with the same name from different output directories).
+
 Writes ``<output>.csv`` and ``<output>.md`` (Markdown table with the generating command).
 For each metric (median over pathways of the per-pathway Spearman or R²): A, B, B − A,
 the 95% percentile interval of B − A and the fraction of resamples with B − A ≤ 0.
@@ -128,8 +131,17 @@ def paired_bootstrap(
     return point_a, point_b, np.concatenate(deltas)
 
 
+def split_label(entry: str) -> tuple[str | None, str]:
+    """``<label>=<pattern>`` -> (label, pattern); a bare pattern has no label."""
+    head, sep, tail = entry.partition("=")
+    if sep and "/" not in head:
+        return head, tail
+    return None, entry
+
+
 def expand(pattern: str) -> list[Path]:
     """A prediction file, or a glob over the runs (seeds) of one condition."""
+    pattern = split_label(pattern)[1]
     if not glob.has_magic(pattern):
         return [Path(pattern)]
     paths = sorted(Path(p) for p in glob.glob(pattern))
@@ -139,7 +151,11 @@ def expand(pattern: str) -> list[Path]:
 
 
 def label(pattern: str) -> str:
-    """Condition name: the file stem, or the run directory for `test_predictions.parquet`."""
+    """Condition name: the ``<label>=`` prefix if given, else the file stem, or the run
+    directory for ``test_predictions.parquet``."""
+    name, pattern = split_label(pattern)
+    if name:
+        return name
     path = Path(pattern)
     return path.parent.name if path.name == "test_predictions.parquet" else path.stem
 

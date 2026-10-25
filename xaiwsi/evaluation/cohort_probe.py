@@ -17,6 +17,9 @@ Writes ``probe_metrics.csv`` (one row per condition, normalization, split and co
 ``predictions/<condition>__<normalization>.parquet``: per-case predictions and targets of
 the val and test cohorts (see ``xaiwsi.evaluation.predictions``), the input of
 ``xaiwsi.evaluation.paired_bootstrap``.
+
+``--tile-qc-threshold 0.5`` averages only the tiles that ``xaiwsi.qc.tile_classifier``
+does not flag as artifacts (slide means cached with a ``_qc<threshold>`` suffix).
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
 from xaiwsi.evaluation.learning_curve import make_probe, slide_means
 from xaiwsi.evaluation.predictions import prediction_frame
 from xaiwsi.metrics.pathways import compute_pathway_metrics
+from xaiwsi.qc.mask import keep_mask, load_artifact_probs
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
 from xaiwsi.training.run_config import data_args
 
@@ -65,6 +69,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--normalizations", nargs="+", default=["per_cohort"], choices=["per_cohort", "pooled"]
+    )
+    parser.add_argument(
+        "--tile-qc-threshold",
+        type=float,
+        help="average only tiles with artifact probability below this (xaiwsi.qc.tile_classifier)",
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
@@ -101,10 +110,17 @@ def main() -> None:
                     by_cohort.setdefault(part.cohort, []).append(part)
             for cohort, parts in by_cohort.items():
                 slide_ids = sorted({sid for p in parts for sid in p.pairs["slide_id"].astype(str)})
+                masks, suffix = None, ""
+                if args.tile_qc_threshold is not None:
+                    spec = next(c for c in train_specs + test_specs if c.name == cohort)
+                    probs = load_artifact_probs(spec.resolve(processed_root, embedding).embedding_dir)
+                    masks = lambda sid, probs=probs: keep_mask(probs[sid], args.tile_qc_threshold)  # noqa: E731
+                    suffix = f"_qc{args.tile_qc_threshold:g}"
                 features[cohort] = slide_means(
                     parts[0].store,
                     slide_ids,
-                    args.output_dir / f"slide_means_{cohort}_{embedding}.parquet",
+                    args.output_dir / f"slide_means_{cohort}_{embedding}{suffix}.parquet",
+                    tile_masks=masks,
                 )
 
             def xy(part) -> tuple[np.ndarray, np.ndarray]:

@@ -1,0 +1,21 @@
+# Tile artifact labels for xaiwsi.qc.tile_classifier, assigned by looking at the tiles of
+# outputs/tile_qc/clusters (refine_overview.png; 2026-10-25). Produced by:
+#   uv run python -m xaiwsi.qc.tile_clusters --config configs/training/pathway_cohorts.yaml \
+#       --cohorts tcga-luad tcga-lusc tcga-brca cptac-luad cptac-lusc \
+#       --refine 18 36 --refine-k 10 --output-dir outputs/tile_qc/clusters
+# Coarse clusters 18 (non-tissue) and 36 (blur and mixed artifacts) were sub-clustered.
+# Tiles of all other clusters are labelled tissue.
+clusters_dir: outputs/tile_qc/clusters
+artifact_subclusters:
+  1: background / empty glass
+  2: out of focus
+  3: background with faint debris
+  7: pen ink, glass edge, colour casts
+  8: slide edge, label, black regions
+  9: solid red block (one TCGA-BRCA slide)
+tissue_subclusters:
+  0: tissue that fell into cluster 36
+  5: faded stain, one slide (TCGA-05-4410; a slide-level issue, not a tile artifact)
+  6: faded stain, three slides
+excluded_subclusters:
+  4: mixed blood / folds / debris (ambiguous, left out of training)

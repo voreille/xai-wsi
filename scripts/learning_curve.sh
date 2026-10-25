@@ -48,19 +48,26 @@ run_one() {
             --trainer.logger.init_args.id "$id" \
             --trainer.logger.init_args.name "$id" \
             --trainer.logger.init_args.group "learning-curve-$TAG" \
-            > "$LOG_DIR/$id.fit.log" 2>&1
+            > "$LOG_DIR/$id.fit.log" 2>&1 \
+            || { echo "FAIL fit  $id, see $LOG_DIR/$id.fit.log"; return 1; }
     fi
     local ckpt
-    ckpt=$(ls "$run_dir"/checkpoints/epoch=*.ckpt | head -n 1)
+    ckpt=$(compgen -G "$run_dir/checkpoints/epoch=*.ckpt" | head -n 1) || true
+    if [[ -z "$ckpt" ]]; then
+        echo "FAIL $id: no best checkpoint in $run_dir/checkpoints"
+        return 1
+    fi
     echo "test $id with $(basename "$ckpt")"
     CUDA_VISIBLE_DEVICES=$gpu uv run python -m xaiwsi.training.cli test \
         --config "$run_dir/config.yaml" \
         --ckpt_path "$ckpt" \
-        > "$LOG_DIR/$id.test.log" 2>&1
+        > "$LOG_DIR/$id.test.log" 2>&1 \
+        || { echo "FAIL test $id, see $LOG_DIR/$id.test.log"; return 1; }
 }
 
 if [[ " $STAGES " == *" tiles "* ]]; then
-    # One sequential queue per GPU; jobs are dealt round-robin.
+    # One sequential queue per GPU; jobs are dealt round-robin. A failed job is reported
+    # and the queue goes on; the script exits non-zero if any job failed.
     read -r -a gpus <<< "$GPUS"
     jobs=()
     for fraction in $FRACTIONS; do
@@ -68,15 +75,26 @@ if [[ " $STAGES " == *" tiles "* ]]; then
             jobs+=("$fraction $seed")
         done
     done
+    pids=()
     for g in "${!gpus[@]}"; do
         (
+            failed=0
             for j in "${!jobs[@]}"; do
                 if (( j % ${#gpus[@]} == g )); then
-                    run_one "${gpus[$g]}" ${jobs[$j]}
+                    run_one "${gpus[$g]}" ${jobs[$j]} || failed=1
                 fi
             done
+            exit $failed
         ) &
+        pids+=($!)
     done
-    wait
+    status=0
+    for pid in "${pids[@]}"; do
+        wait "$pid" || status=1
+    done
+    if (( status )); then
+        echo "Some runs failed (FAIL lines above). Fix and rerun: runs with a checkpoint are skipped."
+        exit 1
+    fi
     echo "Done. Collect with: uv run python -m xaiwsi.evaluation.collect_learning_curve --run-root $RUN_ROOT --prefix lc-$TAG"
 fi

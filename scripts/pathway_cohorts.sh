@@ -23,6 +23,7 @@ set -euo pipefail
 
 CONFIG=${CONFIG:-configs/training/pathway_cohorts.yaml}
 TAG=${TAG:-$(date +%m%d)}
+# Space-separated conditions; commas separate the cohorts within one condition.
 CONDITIONS=${CONDITIONS:-"tcga-luad tcga-luad,tcga-lusc"}
 NORMALIZATIONS=${NORMALIZATIONS:-"per_cohort"}
 SEEDS=${SEEDS:-"0 1 2"}
@@ -32,6 +33,14 @@ RUN_ROOT=${RUN_ROOT:-runs/pathways/xai-wsi}
 LOG_DIR=${LOG_DIR:-outputs/cohort_runs/logs}
 
 mkdir -p "$LOG_DIR"
+
+for condition in $CONDITIONS; do
+    names=$(tr ',' '\n' <<< "$condition" | cut -d: -f1)
+    if [[ -n $(sort <<< "$names" | uniq -d) ]]; then
+        echo "Condition '$condition' repeats a cohort. Separate conditions with spaces, not commas." >&2
+        exit 2
+    fi
+done
 
 if [[ " $STAGES " == *" probes "* ]]; then
     # shellcheck disable=SC2086
@@ -60,19 +69,26 @@ run_one() {
             --trainer.logger.init_args.id "$id" \
             --trainer.logger.init_args.name "$id" \
             --trainer.logger.init_args.group "cohorts-$TAG" \
-            > "$LOG_DIR/$id.fit.log" 2>&1
+            > "$LOG_DIR/$id.fit.log" 2>&1 \
+            || { echo "FAIL fit  $id, see $LOG_DIR/$id.fit.log"; return 1; }
     fi
     local ckpt
-    ckpt=$(ls "$run_dir"/checkpoints/epoch=*.ckpt | head -n 1)
+    ckpt=$(compgen -G "$run_dir/checkpoints/epoch=*.ckpt" | head -n 1) || true
+    if [[ -z "$ckpt" ]]; then
+        echo "FAIL $id: no best checkpoint in $run_dir/checkpoints"
+        return 1
+    fi
     echo "test $id with $(basename "$ckpt")"
     CUDA_VISIBLE_DEVICES=$gpu uv run python -m xaiwsi.training.cli test \
         --config "$run_dir/config.yaml" \
         --ckpt_path "$ckpt" \
-        > "$LOG_DIR/$id.test.log" 2>&1
+        > "$LOG_DIR/$id.test.log" 2>&1 \
+        || { echo "FAIL test $id, see $LOG_DIR/$id.test.log"; return 1; }
 }
 
 if [[ " $STAGES " == *" tiles "* ]]; then
-    # One sequential queue per GPU; jobs are dealt round-robin.
+    # One sequential queue per GPU; jobs are dealt round-robin. A failed job is reported
+    # and the queue goes on; the script exits non-zero if any job failed.
     read -r -a gpus <<< "$GPUS"
     jobs=()
     for condition in $CONDITIONS; do
@@ -82,15 +98,26 @@ if [[ " $STAGES " == *" tiles "* ]]; then
             done
         done
     done
+    pids=()
     for g in "${!gpus[@]}"; do
         (
+            failed=0
             for j in "${!jobs[@]}"; do
                 if (( j % ${#gpus[@]} == g )); then
-                    run_one "${gpus[$g]}" ${jobs[$j]}
+                    run_one "${gpus[$g]}" ${jobs[$j]} || failed=1
                 fi
             done
+            exit $failed
         ) &
+        pids+=($!)
     done
-    wait
+    status=0
+    for pid in "${pids[@]}"; do
+        wait "$pid" || status=1
+    done
+    if (( status )); then
+        echo "Some runs failed (FAIL lines above). Fix and rerun: runs with a checkpoint are skipped."
+        exit 1
+    fi
     echo "Done. Collect with: uv run python -m xaiwsi.evaluation.collect_cohort_runs --run-root $RUN_ROOT --prefix coh-$TAG"
 fi

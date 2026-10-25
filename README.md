@@ -160,6 +160,26 @@ Same commands as TCGA-LUSC, with `P=data/processed/tcga-brca`, the raw RNA in
 `data/raw/tcga-brca-wsi`; one folder per GDC file UUID). Result: 1106 primary-tumour RNA
 samples, 1085 DX slides from 1020 cases, 1016 cases with WSI + RNA.
 
+### CPTAC-LSCC (second external test cohort, 2026-10-25)
+
+The CPTAC modules take the cohort through their arguments:
+
+```bash
+P=data/processed/cptac-lusc
+python -m xaiwsi.preprocessing.cptac.rna_metadata \
+    --manifest data/raw/cptac-lusc-rna/manifest.txt --raw-root data/raw/cptac-lusc-rna \
+    --output $P/metadata/rna_samples.csv
+python -m xaiwsi.preprocessing.cptac.rna \
+    --metadata $P/metadata/rna_samples.csv --raw-root data/raw/cptac-lusc-rna --output-dir $P/rna
+python -m xaiwsi.preprocessing.cptac.wsi_metadata \
+    --slides-root data/raw/cptac-lusc-wsi --output $P/metadata/wsi_slides.csv
+```
+
+Result: 206 RNA files (110 primary tumour from 109 cases, 96 normal), 1081 slides from 212
+cases, 108 cases with an embedded slide and tumour RNA. In `pathway_cohorts.yaml` it is a
+test cohort with `zscore_reference: tcga-lusc`, so it is only evaluated when TCGA-LUSC is
+a training cohort.
+
 The CPTAC metadata pipeline uses the same harmonized GDC expression format, but does not assume TCGA barcode semantics.
 
 ---

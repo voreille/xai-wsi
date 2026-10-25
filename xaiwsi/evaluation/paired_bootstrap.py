@@ -53,8 +53,9 @@ def median_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
     """Median over pathways of Spearman and R², for a batch of resamples.
 
     y_true, y_pred: (B, N, P). Returns (B, 2): [median_spearman, median_r2]. Spearman is
-    the Pearson correlation of average ranks (as scipy's spearmanr); pathways with a
-    constant column are NaN and skipped by the median, as in compute_pathway_metrics.
+    the Pearson correlation of average ranks (as scipy's spearmanr). A pathway with a
+    constant column has no Spearman/R²; compute_pathway_metrics would drop it from the
+    median, which would silently change what the median is over, so this raises instead.
     """
     with np.errstate(invalid="ignore", divide="ignore"):
         rt = rankdata(y_true, axis=1)
@@ -65,7 +66,13 @@ def median_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> np.ndarray:
         ss_res = ((y_true - y_pred) ** 2).sum(axis=1)
         ss_tot = ((y_true - y_true.mean(axis=1, keepdims=True)) ** 2).sum(axis=1)
         r2 = np.where(ss_tot > 0, 1.0 - ss_res / ss_tot, np.nan)
-    return np.stack([np.nanmedian(rho, axis=1), np.nanmedian(r2, axis=1)], axis=1)
+    undefined = np.isnan(rho) | np.isnan(r2)
+    if undefined.any():
+        raise ValueError(
+            f"Spearman/R² undefined (constant column or NaN) for {int(undefined.sum())} "
+            f"pathway value(s) over {len(rho)} resample(s)."
+        )
+    return np.stack([np.median(rho, axis=1), np.median(r2, axis=1)], axis=1)
 
 
 METRICS = ["median_spearman", "median_r2"]

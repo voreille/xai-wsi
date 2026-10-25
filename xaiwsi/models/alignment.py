@@ -191,3 +191,49 @@ def symmetric_info_nce(
     logits = logit_scale * slide @ rna.T
     labels = torch.arange(len(slide), device=slide.device)
     return 0.5 * (F.cross_entropy(logits, labels) + F.cross_entropy(logits.T, labels))
+
+
+class SymmetricInfoNCE(nn.Module):
+    """``symmetric_info_nce`` as a swappable loss: ``loss(out, batch)``."""
+
+    def forward(self, out: dict, batch: dict) -> torch.Tensor:
+        return symmetric_info_nce(out["slide"], out["rna"], out["logit_scale"])
+
+
+def soft_targets(rna: torch.Tensor, off_diagonal_mass: float, temperature: float) -> torch.Tensor:
+    """``B x B`` target distributions from the similarity of the RNA inputs.
+
+    Row ``i`` puts ``1 - off_diagonal_mass`` on its own pair and spreads
+    ``off_diagonal_mass`` over the other cases with ``softmax(cos(rna_i, rna_j) / T)``.
+    ``off_diagonal_mass = 0`` gives the one-hot targets of InfoNCE.
+    """
+    unit = F.normalize(rna.float(), dim=-1)
+    similarity = unit @ unit.T / temperature
+    eye = torch.eye(len(rna), dtype=torch.bool, device=rna.device)
+    neighbours = similarity.masked_fill(eye, float("-inf")).softmax(dim=-1)
+    return (1.0 - off_diagonal_mass) * eye.float() + off_diagonal_mass * neighbours
+
+
+class SoftTargetInfoNCE(nn.Module):
+    """Symmetric InfoNCE with RNA-similarity soft targets instead of one-hot identity.
+
+    Patients with similar RNA are partial positives rather than full negatives, so the
+    loss rewards shared biological structure over telling single patients apart. The
+    targets use the frozen RNA input embeddings (standardized ``batch["rna"]``), not the
+    learned projection, so they do not move during training. The similarity matrix is
+    symmetric, so both directions use the same targets.
+    """
+
+    def __init__(self, off_diagonal_mass: float = 0.5, target_temperature: float = 0.1):
+        super().__init__()
+        if not 0.0 <= off_diagonal_mass < 1.0:
+            raise ValueError("off_diagonal_mass must be in [0, 1).")
+        if target_temperature <= 0.0:
+            raise ValueError("target_temperature must be positive.")
+        self.off_diagonal_mass = off_diagonal_mass
+        self.target_temperature = target_temperature
+
+    def forward(self, out: dict, batch: dict) -> torch.Tensor:
+        logits = out["logit_scale"] * out["slide"] @ out["rna"].T
+        targets = soft_targets(batch["rna"], self.off_diagonal_mass, self.target_temperature)
+        return 0.5 * (F.cross_entropy(logits, targets) + F.cross_entropy(logits.T, targets))

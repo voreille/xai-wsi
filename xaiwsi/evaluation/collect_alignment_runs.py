@@ -51,13 +51,20 @@ def run_row(run_dir: Path) -> dict:
     config = yaml.safe_load((run_dir / "config.yaml").read_text())
     aligner = config["model"]["aligner"]["init_args"]
     encoder = aligner["slide_encoder"]
+    # Runs from before the `loss` argument trained with hard InfoNCE.
+    loss = config["model"].get("loss") or {"class_path": "SymmetricInfoNCE"}
+    loss_args = loss.get("init_args") or {}
     val_mrr, epoch = best_checkpoint_state(run_dir)
     test = json.loads((run_dir / "test_metrics.json").read_text())["metrics"]
     return {
         "run": run_dir.name,
         "encoder": encoder["class_path"].rsplit(".", 1)[-1],
         "tile_dropout": encoder["init_args"].get("tile_dropout", 0.0),
+        "embed_dim": encoder["init_args"]["embed_dim"],
         "weight_decay": config["model"]["weight_decay"],
+        "loss": loss["class_path"].rsplit(".", 1)[-1],
+        "off_diagonal_mass": loss_args.get("off_diagonal_mass", 0.0),
+        "target_temperature": loss_args.get("target_temperature", float("nan")),
         "seed": config["seed_everything"],
         "best_epoch": epoch,
         "val_mean_mrr": val_mrr,
@@ -92,9 +99,11 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     runs.to_csv(args.output_dir / "alignment_runs.csv", index=False)
 
-    keys = ["encoder", "tile_dropout", "weight_decay"]
+    keys = ["encoder", "tile_dropout", "embed_dim", "weight_decay", "loss", "off_diagonal_mass", "target_temperature"]
+    # Settings that do not vary are dropped from the table (all kept in the CSV).
+    keys = [k for k in keys if runs[k].nunique(dropna=False) > 1] or ["encoder"]
     metrics = ["best_epoch", "val_mean_mrr"] + [f"test_{name}" for name in TEST_METRICS]
-    grouped = runs.groupby(keys)
+    grouped = runs.groupby(keys, dropna=False)
     summary = grouped[metrics].agg(["mean", "std"])
     summary.columns = [f"{m}_{s}" for m, s in summary.columns]
     summary.insert(0, "n_runs", grouped.size())

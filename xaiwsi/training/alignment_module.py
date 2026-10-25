@@ -5,9 +5,10 @@ import math
 
 import lightning as L
 import torch
+from torch import nn
 
 from xaiwsi.metrics.retrieval import retrieval_metrics
-from xaiwsi.models.alignment import ContrastiveAligner, symmetric_info_nce
+from xaiwsi.models.alignment import ContrastiveAligner, SymmetricInfoNCE, symmetric_info_nce
 from xaiwsi.training.run_config import run_dir_of
 
 # retrieval_metrics directions: query = slides, gallery = RNA.
@@ -17,19 +18,23 @@ DIRECTION_NAMES = {"q2g": "wsi2rna", "g2q": "rna2wsi"}
 class AlignmentTraining(L.LightningModule):
     """Thin Lightning wrapper around a framework-agnostic ``ContrastiveAligner``.
 
-    Validation/test embed the whole split and report retrieval over all of its cases,
-    plus the InfoNCE loss with every case as a candidate.
+    ``loss`` is the training objective, ``loss(out, batch)`` (default
+    ``SymmetricInfoNCE``). Validation/test embed the whole split and report retrieval over
+    all of its cases, plus the (hard) InfoNCE loss with every case as a candidate, so
+    ``val/loss`` stays comparable across training losses.
     """
 
     def __init__(
         self,
         aligner: ContrastiveAligner,
+        loss: nn.Module | None = None,
         lr: float = 1e-4,
         weight_decay: float = 1e-4,
     ):
         super().__init__()
-        self.save_hyperparameters(ignore=["aligner"])
+        self.save_hyperparameters(ignore=["aligner", "loss"])
         self.aligner = aligner
+        self.loss = loss if loss is not None else SymmetricInfoNCE()
         self.lr = lr
         self.weight_decay = weight_decay
         self._slides: list[torch.Tensor] = []
@@ -40,9 +45,12 @@ class AlignmentTraining(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         out = self(batch)
-        loss = symmetric_info_nce(out["slide"], out["rna"], out["logit_scale"])
+        loss = self.loss(out, batch)
         batch_size = len(batch["rna"])
         self.log("train/loss", loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=batch_size)
+        if not isinstance(self.loss, SymmetricInfoNCE):
+            hard = symmetric_info_nce(out["slide"].detach(), out["rna"].detach(), out["logit_scale"].detach())
+            self.log("train/hard_loss", hard, on_step=False, on_epoch=True, batch_size=batch_size)
         self.log("train/logit_scale", out["logit_scale"], on_step=False, on_epoch=True, batch_size=batch_size)
         return loss
 

@@ -16,8 +16,9 @@ from matplotlib.colors import Normalize, TwoSlopeNorm
 from PIL import Image
 from wsitools.storage.factory import build_embedding_store_from_dir
 
+from xaiwsi.evaluation.predict_run import load_predictor
+from xaiwsi.models.pathway import PathwayPredictor
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
-from xaiwsi.training.pathway_module import PathwayTraining
 from xaiwsi.training.run_config import data_args, resolve_cohort
 
 
@@ -80,7 +81,7 @@ def _resolve_hallmark_gmt(
 
 
 def predict_slide(
-    model: PathwayTraining,
+    model: PathwayPredictor,
     embedding_store,
     slide_id: str,
     device: torch.device,
@@ -99,7 +100,7 @@ def predict_slide(
 
     if tile_scores is None:
         raise RuntimeError(
-            f"{model.predictor.__class__.__name__} does not produce "
+            f"{model.__class__.__name__} does not produce "
             "tile-level pathway scores."
         )
 
@@ -216,7 +217,10 @@ def render_heatmap_overlay(
     kind: str,
     alpha: float,
     percentile: float = 99.0,
+    vmax: float | None = None,
 ) -> Image.Image:
+    """Overlay one value per pixel; ``vmax`` fixes the colour scale (for comparing slides),
+    otherwise it is the ``percentile`` of this slide's values."""
     valid = np.isfinite(heatmap)
 
     if not valid.any():
@@ -225,7 +229,8 @@ def render_heatmap_overlay(
     values = heatmap[valid]
 
     if kind in {"score", "contribution"}:
-        vmax = float(np.percentile(np.abs(values), percentile))
+        if vmax is None:
+            vmax = float(np.percentile(np.abs(values), percentile))
         if vmax <= 0:
             vmax = 1.0
 
@@ -233,7 +238,8 @@ def render_heatmap_overlay(
         cmap = matplotlib.colormaps["coolwarm"]
 
     elif kind in {"weight", "gate"}:
-        vmax = float(np.percentile(values, percentile))
+        if vmax is None:
+            vmax = float(np.percentile(values, percentile))
         if vmax <= 0:
             vmax = 1.0
 
@@ -388,6 +394,15 @@ def _jsonable(value: Any) -> Any:
     show_default=True,
 )
 @click.option(
+    "--vmax",
+    type=float,
+    default=None,
+    help=(
+        "Fixed colour scale for score maps (±vmax, z units of the targets), so maps of "
+        "different slides are comparable. Default: 99th percentile of |score| per slide."
+    ),
+)
+@click.option(
     "--device",
     default="cuda",
     show_default=True,
@@ -406,6 +421,7 @@ def main(
     output_dir: Path,
     thumbnail_size: int,
     alpha: float,
+    vmax: float | None,
     device: str,
 ) -> None:
     dataset = dataset.lower()  # cohort names are lower case
@@ -456,12 +472,9 @@ def main(
 
     torch_device = torch.device(device)
 
-    model = PathwayTraining.load_from_checkpoint(
-        checkpoint,
-        map_location=torch_device,
-    )
-    model = model.to(torch_device)
-    model.eval()
+    # Rebuild the predictor from the run config; LightningCLI checkpoints don't
+    # store the predictor in their hparams.
+    model = load_predictor(config, checkpoint, torch_device)
 
     result, coords, attrs = predict_slide(
         model,
@@ -604,6 +617,7 @@ def main(
                 score_grid,
                 kind="score",
                 alpha=alpha,
+                vmax=vmax,
             )
 
             overlay.save(slide_output_dir / f"{filename}_score.png")

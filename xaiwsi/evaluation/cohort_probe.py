@@ -20,6 +20,10 @@ the val and test cohorts (see ``xaiwsi.evaluation.predictions``), the input of
 
 ``--tile-qc-threshold 0.5`` averages only the tiles that ``xaiwsi.qc.tile_classifier``
 does not flag as artifacts (slide means cached with a ``_qc<threshold>`` suffix).
+
+``--gene-sets <.gmt|.json>`` probes other gene sets than the config's Hallmarks (e.g. the
+approximate Tavernari lepidic/solid sets); every ``LEPIDIC_<src>``/``SOLID_<src>`` pair also
+gets the axis ``L2S_<src>`` = solid - lepidic, for targets and predictions alike.
 """
 
 from __future__ import annotations
@@ -34,11 +38,13 @@ import pandas as pd
 import yaml
 
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
+from xaiwsi.evaluation.geneset_vs_hallmarks import add_axis_scores
 from xaiwsi.evaluation.learning_curve import make_probe, slide_means
 from xaiwsi.evaluation.predictions import prediction_frame
 from xaiwsi.metrics.pathways import compute_pathway_metrics
 from xaiwsi.qc.mask import keep_mask, load_artifact_probs
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
+from xaiwsi.rna.pathways.tavernari import load_tavernari_signatures
 from xaiwsi.training.run_config import data_args
 
 
@@ -75,6 +81,9 @@ def main() -> None:
         type=float,
         help="average only tiles with artifact probability below this (xaiwsi.qc.tile_classifier)",
     )
+    parser.add_argument(
+        "--gene-sets", type=Path, default=None, help=".gmt/.json gene sets (default: config Hallmarks)"
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -83,8 +92,15 @@ def main() -> None:
     data = data_args(yaml.safe_load(args.config.read_text()))
     if "train_cohorts" not in data:
         raise SystemExit(f"{args.config} is not a CohortPathwayDataModule config.")
-    gene_sets = load_hallmarks(data["hallmark_gmt"])
+    if args.gene_sets is None:
+        gene_sets = load_hallmarks(data["hallmark_gmt"])
+    else:
+        gene_sets = load_tavernari_signatures(args.gene_sets)
     names = list(gene_sets)
+    output_names = list(add_axis_scores(pd.DataFrame(columns=names)).columns)
+
+    def with_axes(values: np.ndarray) -> np.ndarray:
+        return add_axis_scores(pd.DataFrame(values, columns=names))[output_names].to_numpy()
     processed_root, embedding = data.get("processed_root"), data.get("embedding", "h-optimus-1")
     train_specs = [CohortSpec(**spec) for spec in data["train_cohorts"]]
     test_specs = [CohortSpec(**spec) for spec in data["test_cohorts"]]
@@ -134,11 +150,11 @@ def main() -> None:
             for split in ("val", "test"):
                 for part in splits[split]:
                     x, y = xy(part)
-                    y_pred = model.predict(x)
+                    y, y_pred = with_axes(y), with_axes(model.predict(x))
                     predictions.append(
-                        prediction_frame(part.pairs["case_id"], part.cohort, split, y, y_pred, names)
+                        prediction_frame(part.pairs["case_id"], part.cohort, split, y, y_pred, output_names)
                     )
-                    summary, _ = compute_pathway_metrics(y, y_pred, names)
+                    summary, _ = compute_pathway_metrics(y, y_pred, output_names)
                     rows.append(
                         {
                             "condition": condition,

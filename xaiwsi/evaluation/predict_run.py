@@ -28,6 +28,7 @@ import torch
 import yaml
 
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
+from xaiwsi.data.pathway import tile_grid
 from xaiwsi.evaluation.predictions import prediction_frame
 from xaiwsi.models.pathway import PathwayPredictor
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
@@ -85,9 +86,10 @@ def run_splits(config: dict, test_specs: list[CohortSpec] | None = None) -> tupl
 def predict_part(predictor: PathwayPredictor, part, names: list[str], device: torch.device) -> tuple:
     preds, targets = [], []
     for row in part.pairs.itertuples(index=False):
-        embeddings, _, _ = part.store.load(str(row.slide_id))
+        embeddings, coords, attrs = part.store.load(str(row.slide_id))
         x = torch.from_numpy(np.asarray(embeddings)).float().to(device)[None]
-        preds.append(predictor(x)["pred"][0].cpu().numpy())
+        c = torch.from_numpy(tile_grid(coords, attrs)).to(device)[None]
+        preds.append(predictor(x, coords=c)["pred"][0].cpu().numpy())
         targets.append(part.scores.loc[str(row.sample_id), names].to_numpy(dtype=np.float32))
     return np.stack(targets), np.stack(preds)
 

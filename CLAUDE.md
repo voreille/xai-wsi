@@ -85,7 +85,11 @@ What this means for code written now:
 - `xaiwsi/data/cohorts.py`: `CohortSpec` (paths from `<processed_root>/<name>/`), per-cohort
   or pooled z-score targets, `build_pathway_splits` (shared by the data module and probes).
 - `xaiwsi/models/pathway.py`: `PathwayPredictor` subclasses (`TileLinearMean`,
-  `TileMLPMean`, `TileMLPGatedMean`, `MeanMLP`).
+  `TileMLPMean`, `TileMLPGatedMean`, `MeanMLP`). `xaiwsi/models/nca.py`: `TileNCAMean`, a
+  neural cellular automaton on the tile grid (fixed PCA projection from `xaiwsi.data.tile_pca`).
+- `xaiwsi/tissue/`: linear tile-composition probes (IGNITE classes, ANORAK patterns) on the
+  frozen tile embeddings, applied per tile to `<cohort dir>/tissue/<probe>/`; `features.py`
+  gives slide shares and compartment-weighted pools (`configs/tissue/`).
 - `xaiwsi/metrics/pathways.py`: MSE, zero-baseline skill, per-pathway R² and Spearman.
 - `xaiwsi/training/`: LightningCLI entry point (`cli.py`, data subclass mode),
   `PathwayTraining` module, `PathwayDataModule` (two-cohort, default when a config has no
@@ -123,7 +127,9 @@ uv run python -m xaiwsi.visualization.pathways --config ... --checkpoint ... \
   checkpointing, logging and the CLI. `PathwayTraining` is a thin wrapper.
 - Models, loggers and callbacks are swapped via `class_path`/`init_args` in YAML. Don't
   add a model-ID registry or builder.
-- Predictors take `B x N x D` tile embeddings and return a dict with `pred`, plus
+- Predictors take `B x N x D` tile embeddings and optional `coords` (`B x N x 2` integer
+  tile-grid positions from `xaiwsi.data.pathway.tile_grid`, which the dataset returns; only
+  spatial models use them) and return a dict with `pred`, plus
   `tile_scores` (`None` for `MeanMLP`). Only the gated model also returns `tile_gates` and
   `tile_weights`; the mean models imply uniform weights `1/N`. The visualization depends
   on these keys. Invariant: `sum_i tile_weights[i] * tile_scores[i, k] == pred[k]`.

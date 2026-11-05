@@ -19,6 +19,8 @@
 #   NORMALIZATIONS="per_cohort pooled" SEEDS="0 1 2" bash scripts/pathway_cohorts.sh
 #   # far cohort, BRCA capped to the size of the LUSC training split:
 #   CONDITIONS="tcga-luad,tcga-brca:381 tcga-luad,tcga-lusc,tcga-brca" bash scripts/pathway_cohorts.sh
+#   # other model (EXTRA_ARGS go to fit; test reads the saved run config):
+#   EXTRA_ARGS="--config configs/training/overrides/gated.yaml" TAG=1105gated bash scripts/pathway_cohorts.sh
 set -euo pipefail
 
 CONFIG=${CONFIG:-configs/training/pathway_cohorts.yaml}
@@ -31,6 +33,7 @@ GPUS=${GPUS:-"0"}
 STAGES=${STAGES:-"probes tiles"}
 RUN_ROOT=${RUN_ROOT:-runs/pathways/xai-wsi}
 LOG_DIR=${LOG_DIR:-outputs/cohort_runs/logs}
+EXTRA_ARGS=${EXTRA_ARGS:-""}
 
 mkdir -p "$LOG_DIR"
 
@@ -63,6 +66,7 @@ run_one() {
         echo "fit  $id on GPU $gpu"
         CUDA_VISIBLE_DEVICES=$gpu uv run python -m xaiwsi.training.cli fit \
             --config "$CONFIG" \
+            $EXTRA_ARGS \
             --seed_everything "$seed" \
             --data.init_args.use_train_cohorts "[${condition}]" \
             --data.init_args.target_normalization "$normalization" \

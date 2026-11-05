@@ -75,6 +75,16 @@ def split_cases(
     )
 
 
+def tile_grid(coords, attrs: dict) -> np.ndarray:
+    """N x 2 integer (x, y) grid positions, in tiles, from level-0 tile coords.
+
+    The step is the store's ``patch_size`` (level-0 pixels per tile). Some slides are tiled
+    region by region with their own origins, so positions are rounded to the nearest cell;
+    tiles of overlapping regions can then share a cell."""
+    coords = np.asarray(coords, dtype=np.float64)
+    return np.rint((coords - coords.min(axis=0)) / float(attrs["patch_size"])).astype(np.int64)
+
+
 class PathwayEmbeddingDataset(Dataset):
     def __init__(
         self,
@@ -96,8 +106,9 @@ class PathwayEmbeddingDataset(Dataset):
         slide_id = str(row["slide_id"])
         sample_id = str(row["sample_id"])
 
-        embeddings, _, _ = self.embedding_store.load(slide_id)
+        embeddings, coords, attrs = self.embedding_store.load(slide_id)
         embeddings = torch.from_numpy(np.asarray(embeddings)).float()
+        coords = torch.from_numpy(tile_grid(coords, attrs))
         target = torch.from_numpy(
             self.pathway_scores.loc[sample_id].to_numpy(dtype=np.float32)
         )
@@ -108,5 +119,6 @@ class PathwayEmbeddingDataset(Dataset):
             "slide_id": slide_id,
             "sample_id": sample_id,
             "embeddings": embeddings,
+            "coords": coords,
             "target": target,
         }

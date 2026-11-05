@@ -1,0 +1,22 @@
+# Overlay for pathway_cohorts.yaml: NCA on the tile grid (xaiwsi.models.nca.TileNCAMean).
+# Fixed PCA projection fit on the TCGA-LUAD training split (xaiwsi.data.tile_pca), so use it
+# with use_train_cohorts [tcga-luad]; fit another PCA for other training cohorts.
+# Variants (scripts/pathway_nca.sh) override init_args on the command line.
+model:
+  predictor:
+    class_path: xaiwsi.models.nca.TileNCAMean
+    init_args:
+      input_dim: 1536
+      output_dim: 50
+      proj_dim: 32
+      hidden_channels: 16
+      update_dim: 64
+      readout_dim: 128
+      steps: 16
+      train_steps: [8, 24]
+      fire_rate: 0.5
+      dropout: 0.2
+      tile_dropout: 0.0
+      projection_path: /home/valentin/workspaces/xai-wsi/data/processed/tile-pca/h-optimus-1-fp16/tcga-luad_pca64.npz
+      whiten: true
+      shuffle_positions: false

@@ -43,11 +43,11 @@ class PathwayTraining(L.LightningModule):
         self._test_cohorts: list[str] = []
         self._test_case_ids: list[str] = []
 
-    def forward(self, embeddings: torch.Tensor):
-        return self.predictor(embeddings)
+    def forward(self, embeddings: torch.Tensor, coords: torch.Tensor | None = None):
+        return self.predictor(embeddings, coords=coords)
 
     def training_step(self, batch, batch_idx):
-        output = self(batch["embeddings"])
+        output = self(batch["embeddings"], batch.get("coords"))
         loss = F.mse_loss(output["pred"], batch["target"])
         self.log(
             "train/loss",
@@ -65,7 +65,7 @@ class PathwayTraining(L.LightningModule):
         self._val_cohorts.clear()
 
     def validation_step(self, batch, batch_idx):
-        output = self(batch["embeddings"])
+        output = self(batch["embeddings"], batch.get("coords"))
         pred = output["pred"]
         target = batch["target"]
 
@@ -96,7 +96,7 @@ class PathwayTraining(L.LightningModule):
         self._test_case_ids.clear()
 
     def test_step(self, batch, batch_idx):
-        output = self(batch["embeddings"])
+        output = self(batch["embeddings"], batch.get("coords"))
         pred = output["pred"]
         target = batch["target"]
 

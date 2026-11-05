@@ -10,8 +10,14 @@ class PathwayPredictor(nn.Module, ABC):
     """Base class for WSI -> pathway predictors."""
 
     @abstractmethod
-    def forward(self, embeddings: torch.Tensor) -> dict[str, torch.Tensor | None]:
-        """Predict pathway scores from B x N x D tile embeddings."""
+    def forward(
+        self, embeddings: torch.Tensor, coords: torch.Tensor | None = None
+    ) -> dict[str, torch.Tensor | None]:
+        """Predict pathway scores from B x N x D tile embeddings.
+
+        ``coords``: optional B x N x 2 integer tile grid positions (x, y, in tiles, store
+        order; ``xaiwsi.data.pathway.tile_grid``); only spatial predictors (e.g.
+        ``xaiwsi.models.nca.TileNCAMean``) use them."""
         raise NotImplementedError
 
 
@@ -66,6 +72,7 @@ class TileMLPGatedMean(PathwayPredictor):
     def forward(
         self,
         embeddings: torch.Tensor,
+        coords: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         # B x N x D
         embeddings = self._drop_tiles(embeddings)
@@ -99,7 +106,9 @@ class TileLinearMean(PathwayPredictor):
         super().__init__()
         self.linear = nn.Linear(input_dim, output_dim)
 
-    def forward(self, embeddings: torch.Tensor) -> dict[str, torch.Tensor | None]:
+    def forward(
+        self, embeddings: torch.Tensor, coords: torch.Tensor | None = None
+    ) -> dict[str, torch.Tensor | None]:
         tile_scores = self.linear(embeddings)
         return {"pred": tile_scores.mean(dim=1), "tile_scores": tile_scores}
 
@@ -122,7 +131,9 @@ class TileMLPMean(PathwayPredictor):
             nn.Linear(hidden_dim, output_dim),
         )
 
-    def forward(self, embeddings: torch.Tensor) -> dict[str, torch.Tensor | None]:
+    def forward(
+        self, embeddings: torch.Tensor, coords: torch.Tensor | None = None
+    ) -> dict[str, torch.Tensor | None]:
         tile_scores = self.mlp(embeddings)
         return {"pred": tile_scores.mean(dim=1), "tile_scores": tile_scores}
 
@@ -145,6 +156,8 @@ class MeanMLP(PathwayPredictor):
             nn.Linear(hidden_dim, output_dim),
         )
 
-    def forward(self, embeddings: torch.Tensor) -> dict[str, torch.Tensor | None]:
+    def forward(
+        self, embeddings: torch.Tensor, coords: torch.Tensor | None = None
+    ) -> dict[str, torch.Tensor | None]:
         pooled = embeddings.mean(dim=1)
         return {"pred": self.mlp(pooled), "tile_scores": None}

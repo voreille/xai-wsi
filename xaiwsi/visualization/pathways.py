@@ -16,6 +16,7 @@ from matplotlib.colors import Normalize, TwoSlopeNorm
 from PIL import Image
 from wsitools.storage.factory import build_embedding_store_from_dir
 
+from xaiwsi.data.pathway import tile_grid
 from xaiwsi.evaluation.predict_run import load_predictor
 from xaiwsi.models.pathway import PathwayPredictor
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
@@ -93,8 +94,10 @@ def predict_slide(
         torch.from_numpy(np.asarray(embeddings)).float().unsqueeze(0).to(device)
     )
 
+    coords_tensor = torch.from_numpy(tile_grid(coords, attrs)).unsqueeze(0).to(device)
+
     with torch.inference_mode():
-        output = model(embeddings)
+        output = model(embeddings, coords=coords_tensor)
 
     tile_scores = output.get("tile_scores")
 

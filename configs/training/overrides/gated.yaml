@@ -1,0 +1,10 @@
+# Overlay for pathway_cohorts.yaml: gated-mean tile model instead of the plain tile mean.
+# Use as a second --config (scripts/pathway_gated.sh).
+model:
+  predictor:
+    class_path: xaiwsi.models.pathway.TileMLPGatedMean
+    init_args:
+      input_dim: 1536
+      hidden_dim: 128
+      output_dim: 50
+      dropout: 0.2

@@ -50,4 +50,5 @@ print(' '.join(sorted(pd.read_parquet(sys.argv[1])['cohort'].unique())))" "${run
             --output "$OUT/bootstrap/${short}_${cohort}"
     done
 done
-uv run python -m xaiwsi.evaluation.collect_cohort_runs --run-root "$RUN_ROOT" --prefix "coh-$TAG"
+uv run python -m xaiwsi.evaluation.collect_cohort_runs --run-root "$RUN_ROOT" --prefix "coh-$TAG" \
+    --output-dir "$OUT/runs"

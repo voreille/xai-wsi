@@ -1,0 +1,34 @@
+# Slide-level composition features for xaiwsi.evaluation.cohort_probe --features composition.
+# Each feature is the slide share of the summed classes of one probe (mean over tiles of
+# the probe's soft fractions, from xaiwsi.tissue.apply). With renormalize_over, the share is
+# divided by the summed share of those classes on the same slide (ANORAK patterns over
+# tumour-pattern mass only, since its background class is under-predicted).
+# Classes kept: those the probes predict usefully on their test sets (outputs/tissue_probe).
+features:
+  tumour:
+    probe: ignite
+    classes: [Tumor epithelium]
+  stroma:
+    probe: ignite
+    classes: [Stroma]
+  immune:
+    probe: ignite
+    classes: [Inflammation, Macrophages]
+  necrosis:
+    probe: ignite
+    classes: [Necrotic tissue]
+  background:
+    probe: ignite
+    classes: [Background]
+  solid:
+    probe: anorak
+    classes: [solid]
+    renormalize_over: [cribriform, micropapillary, solid, papillary, acinar, lepidic]
+  papillary:
+    probe: anorak
+    classes: [papillary]
+    renormalize_over: [cribriform, micropapillary, solid, papillary, acinar, lepidic]
+  lepidic:
+    probe: anorak
+    classes: [lepidic]
+    renormalize_over: [cribriform, micropapillary, solid, papillary, acinar, lepidic]

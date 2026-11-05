@@ -1,0 +1,18 @@
+# Compartment pooling for xaiwsi.evaluation.compartment_probe, from the applied IGNITE probe
+# (xaiwsi.tissue.apply). Tile weights are the probe's soft fractions summed over the classes.
+probe: ignite
+# Tumour microenvironment: tissue that plausibly ends up in the bulk-RNA aliquot of a tumour
+# sample. Left out: background, healthy lung and other normal structures (alveolar, bronchial
+# epithelium, cartilage, muscle, fat), fluids and blood, the off-organ class (liver), and
+# reactive epithelium (normal/tumour-adjacent and unusable on the IGNITE test set).
+tme: [Tumor epithelium, Keratinization, Stroma, Inflammation, Macrophages, Necrotic tissue]
+# Background, removed alone by the no-background mean.
+background: [Background]
+compartments:
+  tumour: [Tumor epithelium, Keratinization]
+  stroma: [Stroma]
+  immune: [Inflammation, Macrophages]
+  necrosis: [Necrotic tissue]
+# A compartment with less summed weight than this (in tile units) on a slide gets the
+# slide's TME mean instead, and a low_<compartment> flag of 1 for that slide.
+min_weight: 20

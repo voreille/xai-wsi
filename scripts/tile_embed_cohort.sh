@@ -6,6 +6,8 @@
 # Usage (on the host, from the repo root):
 #   COHORT=tcga-lusc SLIDES=/mnt/nas7/data/TCGA_Lung_svs/LUSC GPU=0 bash scripts/tile_embed_cohort.sh
 #   STAGES="embed repack" COHORT=... SLIDES=... bash scripts/tile_embed_cohort.sh
+#   # tile 8 slides in parallel (memory grows with it: one pyramid level per slide):
+#   TILE_WORKERS=8 COHORT=... SLIDES=... bash scripts/tile_embed_cohort.sh
 #   # CPTAC: no DX in the file names, and the folders hold normal/frozen slides too, so pass
 #   # the FFPE tumour list from scripts/filter_cptac_slide_id.py:
 #   COHORT=cptac-lusc SLIDES=/mnt/nas6/data/CPTAC/CPTAC-LSCC_v10/LSCC RGLOB="*.svs" \
@@ -18,6 +20,7 @@ set -euo pipefail
 RGLOB=${RGLOB:-"*DX*.svs"}
 INCLUDE_SLIDES=${INCLUDE_SLIDES:-}
 GPU=${GPU:-0}
+TILE_WORKERS=${TILE_WORKERS:-1}
 STAGES=${STAGES:-"tile embed repack"}
 REPO=${REPO:-/home/valentin/workspaces/xai-wsi}
 TILING_CONFIG=${TILING_CONFIG:-$REPO/configs/tiling/tiling.yaml}
@@ -38,6 +41,7 @@ if [[ " $STAGES " == *" tile "* ]]; then
         --config "$TILING_CONFIG" \
         --rglob-str "$RGLOB" \
         "${include[@]}" \
+        --workers "$TILE_WORKERS" \
         --auto-skip
 fi
 

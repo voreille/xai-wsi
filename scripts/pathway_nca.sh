@@ -31,7 +31,7 @@ GPUS=${GPUS:-"0"}
 STAGES=${STAGES:-"train collect"}
 BASELINE_TAG=${BASELINE_TAG:-1024}
 # Bootstrap pairs (all are run, only those with runs for both sides are kept).
-PAIRS=${PAIRS:-"tilemean:t0 t0:t16 t0:t16shuf t0:t32 t0:t16lp tilemean:t16lp t0lp:t16lp t16lp:t16lpshuf t0lr3:t16lr3 t16lr3:t16shuflr3 t0:t0lr3"}
+PAIRS=${PAIRS:-"tilemean:t0 t0:t16 t0:t16shuf t0:t32 t0:t16lp tilemean:t16lp t0lp:t16lp t16lp:t16lpshuf tilemean:t0lp t0lr3:t16lr3 t16lr3:t16shuflr3 t0:t0lr3 tilemean:t0lr3 tilemean:t16lr3"}
 RUN_ROOT=${RUN_ROOT:-runs/pathways/xai-wsi}
 OUT=${OUT:-outputs/nca_runs}
 PCA=${PCA:-data/processed/tile-pca/h-optimus-1-fp16/tcga-luad_pca64.npz}
@@ -70,21 +70,36 @@ done
 
 [[ " $STAGES " == *" collect "* ]] || exit 0
 mkdir -p "$OUT/bootstrap"
-uv run python -m xaiwsi.evaluation.collect_cohort_runs --run-root "$RUN_ROOT" --prefix "coh-${TAG}nca" \
+# Variants are looked up under any tag (a sweep can span several days); a variant found
+# under two tags is an error, so the comparison is never silently mixed.
+uv run python -m xaiwsi.evaluation.collect_cohort_runs --run-root "$RUN_ROOT" --prefix "coh-*nca" \
     --output-dir "$OUT"
-runs_glob() {
-    if [[ $1 == tilemean ]]; then echo "$RUN_ROOT/coh-$BASELINE_TAG-luad-percohort-s*/test_predictions.parquet"
-    else echo "$RUN_ROOT/coh-${TAG}nca-$1-luad-percohort-s*/test_predictions.parquet"; fi
-}
 run_prefix() {
-    if [[ $1 == tilemean ]]; then echo "coh-$BASELINE_TAG-luad-percohort"; else echo "coh-${TAG}nca-$1-luad-percohort"; fi
+    if [[ $1 == tilemean ]]; then echo "coh-$BASELINE_TAG-luad-percohort"; return; fi
+    local tags
+    tags=$(compgen -G "$RUN_ROOT/coh-*nca-$1-luad-percohort-s*" | sed -E "s|.*/(coh-[^/]*nca)-$1-luad-percohort-s[0-9]+$|\1|" | sort -u)
+    if (( $(wc -w <<< "$tags") > 1 )); then
+        echo "variant $1 exists under several tags: $tags" >&2; exit 1
+    fi
+    [[ -n $tags ]] && echo "$tags-$1-luad-percohort"
+    return 0
 }
+runs_glob() {
+    local prefix
+    prefix=$(run_prefix "$1")
+    [[ -n $prefix ]] && echo "$RUN_ROOT/$prefix-s*/test_predictions.parquet"
+    return 0
+}
+# Fail here (not inside a later $(...)) if a variant exists under several tags.
+for variant in t0 t16 t16shuf t32 t16lp t0lp t16lpshuf t0lr3 t16lr3 t16shuflr3; do
+    prefix=$(run_prefix "$variant")
+done
 # Curves in two figures (at most 8 groups each), tile mean as the reference in both.
 curves() {
     local name=$1; shift
     local groups=("tilemean=$(run_prefix tilemean)") variant
     for variant in "$@"; do
-        compgen -G "$(runs_glob "$variant")" > /dev/null && groups+=("$variant=$(run_prefix "$variant")")
+        [[ -n $(runs_glob "$variant") ]] && groups+=("$variant=$(run_prefix "$variant")")
     done
     (( ${#groups[@]} > 1 )) && uv run python -m xaiwsi.evaluation.wandb_curves "${groups[@]}" --output "$OUT/$name"
     return 0
@@ -93,7 +108,7 @@ curves curves_pca t0 t16 t16shuf t32 t0lr3 t16lr3 t16shuflr3
 curves curves_lp t0lp t16lp t16lpshuf
 for pair in $PAIRS; do
     base=${pair%%:*} cand=${pair##*:}
-    if compgen -G "$(runs_glob "$base")" > /dev/null && compgen -G "$(runs_glob "$cand")" > /dev/null; then
+    if [[ -n $(runs_glob "$base") && -n $(runs_glob "$cand") ]]; then
         uv run python -m xaiwsi.evaluation.paired_bootstrap \
             --baseline "$base=$(runs_glob "$base")" --candidates "$cand=$(runs_glob "$cand")" \
             --cohort cptac-luad --split test --output "$OUT/bootstrap/${cand}_vs_${base}"

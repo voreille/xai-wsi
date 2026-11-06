@@ -6,23 +6,32 @@
 #   t16shuf  t16 with tiles shuffled over the tissue cells of their slide (layout control)
 #   t32      32 steps at test, 16-48 at training (larger receptive field)
 #   t16lp    t16 with a learned Linear+LayerNorm projection instead of the fixed PCA
+#   t0lp, t16lpshuf  the t0 / shuffled controls for the learned projection
+#   t0lr3, t16lr3, t16shuflr3  PCA variants at lr 1e-3 (at 1e-4 they still learn at epoch 30)
 #
 # 1. PCA of TCGA-LUAD training-split tiles (skipped if the .npz exists; ~2-3 min, CPU).
 # 2. Fit + test each variant and seed through scripts/pathway_cohorts.sh
 #    (W&B ids coh-<tag>nca-<variant>-luad-percohort-s<seed>).
-# 3. Collect and paired bootstrap on CPTAC-LUAD: each variant vs t0, and t0 vs the plain
-#    tile-mean runs (BASELINE_TAG) -> outputs/nca_runs/.
+# 3. Collect, learning curves from the local W&B files, and paired bootstraps on CPTAC-LUAD
+#    for each PAIRS entry "<baseline>:<candidate>" whose runs exist (tilemean = BASELINE_TAG
+#    tile-mean runs) -> outputs/nca_runs/.
 #
 # Usage (on the host, from the repo root):
 #   GPUS="0 1" bash scripts/pathway_nca.sh
 #   VARIANTS="t0 t16" SEEDS="0" bash scripts/pathway_nca.sh
+#   VARIANTS="t0lp t16lpshuf t0lr3 t16lr3 t16shuflr3" GPUS="0 1" bash scripts/pathway_nca.sh
+#   # only collect, curves and bootstraps of existing runs (no fit/test; runs in claude-box):
+#   TAG=1105 STAGES=collect bash scripts/pathway_nca.sh
 set -euo pipefail
 
 TAG=${TAG:-$(date +%m%d)}
 VARIANTS=${VARIANTS:-"t0 t16 t16shuf t32 t16lp"}
 SEEDS=${SEEDS:-"0 1 2"}
 GPUS=${GPUS:-"0"}
+STAGES=${STAGES:-"train collect"}
 BASELINE_TAG=${BASELINE_TAG:-1024}
+# Bootstrap pairs (all are run, only those with runs for both sides are kept).
+PAIRS=${PAIRS:-"tilemean:t0 t0:t16 t0:t16shuf t0:t32 t0:t16lp tilemean:t16lp t0lp:t16lp t16lp:t16lpshuf t0lr3:t16lr3 t16lr3:t16shuflr3 t0:t0lr3"}
 RUN_ROOT=${RUN_ROOT:-runs/pathways/xai-wsi}
 OUT=${OUT:-outputs/nca_runs}
 PCA=${PCA:-data/processed/tile-pca/h-optimus-1-fp16/tcga-luad_pca64.npz}
@@ -41,11 +50,17 @@ variant_args() {
         t16shuf) echo "$p.shuffle_positions true" ;;
         t32) echo "$p.steps 32 $p.train_steps [16,48]" ;;
         t16lp) echo "$p.projection_path null" ;;
+        t0lp) echo "$p.projection_path null $p.steps 0 $p.train_steps [0,0]" ;;
+        t16lpshuf) echo "$p.projection_path null $p.shuffle_positions true" ;;
+        t0lr3) echo "--model.lr 1e-3 $p.steps 0 $p.train_steps [0,0]" ;;
+        t16lr3) echo "--model.lr 1e-3" ;;
+        t16shuflr3) echo "--model.lr 1e-3 $p.shuffle_positions true" ;;
         *) echo "unknown variant $1" >&2; return 1 ;;
     esac
 }
 
 for variant in $VARIANTS; do
+    [[ " $STAGES " == *" train "* ]] || break
     extra=$(variant_args "$variant")
     CONDITIONS=tcga-luad SEEDS="$SEEDS" GPUS="$GPUS" TAG="${TAG}nca-${variant}" RUN_ROOT="$RUN_ROOT" \
         NORMALIZATIONS=per_cohort STAGES=tiles CONFIG="$CONFIG" \
@@ -53,19 +68,34 @@ for variant in $VARIANTS; do
         bash scripts/pathway_cohorts.sh
 done
 
+[[ " $STAGES " == *" collect "* ]] || exit 0
 mkdir -p "$OUT/bootstrap"
 uv run python -m xaiwsi.evaluation.collect_cohort_runs --run-root "$RUN_ROOT" --prefix "coh-${TAG}nca" \
     --output-dir "$OUT"
-runs_of() { echo "$RUN_ROOT/coh-$1-luad-percohort-s*/test_predictions.parquet"; }
-uv run python -m xaiwsi.evaluation.paired_bootstrap \
-    --baseline "tilemean=$(runs_of "$BASELINE_TAG")" --candidates "t0=$(runs_of "${TAG}nca-t0")" \
-    --cohort cptac-luad --split test --output "$OUT/bootstrap/t0_vs_tilemean"
-candidates=()
-for variant in $VARIANTS; do
-    [[ $variant == t0 ]] || candidates+=("$variant=$(runs_of "${TAG}nca-${variant}")")
+runs_glob() {
+    if [[ $1 == tilemean ]]; then echo "$RUN_ROOT/coh-$BASELINE_TAG-luad-percohort-s*/test_predictions.parquet"
+    else echo "$RUN_ROOT/coh-${TAG}nca-$1-luad-percohort-s*/test_predictions.parquet"; fi
+}
+run_prefix() {
+    if [[ $1 == tilemean ]]; then echo "coh-$BASELINE_TAG-luad-percohort"; else echo "coh-${TAG}nca-$1-luad-percohort"; fi
+}
+# Curves in two figures (at most 8 groups each), tile mean as the reference in both.
+curves() {
+    local name=$1; shift
+    local groups=("tilemean=$(run_prefix tilemean)") variant
+    for variant in "$@"; do
+        compgen -G "$(runs_glob "$variant")" > /dev/null && groups+=("$variant=$(run_prefix "$variant")")
+    done
+    (( ${#groups[@]} > 1 )) && uv run python -m xaiwsi.evaluation.wandb_curves "${groups[@]}" --output "$OUT/$name"
+    return 0
+}
+curves curves_pca t0 t16 t16shuf t32 t0lr3 t16lr3 t16shuflr3
+curves curves_lp t0lp t16lp t16lpshuf
+for pair in $PAIRS; do
+    base=${pair%%:*} cand=${pair##*:}
+    if compgen -G "$(runs_glob "$base")" > /dev/null && compgen -G "$(runs_glob "$cand")" > /dev/null; then
+        uv run python -m xaiwsi.evaluation.paired_bootstrap \
+            --baseline "$base=$(runs_glob "$base")" --candidates "$cand=$(runs_glob "$cand")" \
+            --cohort cptac-luad --split test --output "$OUT/bootstrap/${cand}_vs_${base}"
+    fi
 done
-if (( ${#candidates[@]} )); then
-    uv run python -m xaiwsi.evaluation.paired_bootstrap \
-        --baseline "t0=$(runs_of "${TAG}nca-t0")" --candidates "${candidates[@]}" \
-        --cohort cptac-luad --split test --output "$OUT/bootstrap/variants_vs_t0"
-fi

@@ -27,6 +27,11 @@ Metrics on test:
 Writes ``probe.pt`` (weight, bias, mean, std, classes, settings), ``cv.csv``,
 ``test_metrics.json``, ``per_class.csv``, ``test_predictions.parquet`` (on-grid test tiles)
 and ``metrics.md`` (tables with the generating command).
+
+``--context ring1|ring2|image|shuffled`` concatenates each tile's embedding with the mean of
+other tiles of its image (``xaiwsi.tissue.context``), to test whether neighbouring tissue
+helps; ``shuffled`` is the control with as many random tiles as ``ring1``. Such probes need
+the same context at application time, so ``xaiwsi.tissue.apply`` refuses them.
 """
 
 from __future__ import annotations
@@ -43,6 +48,7 @@ import torch
 from scipy.stats import pearsonr
 
 from xaiwsi.evaluation.cohort_probe import markdown_table
+from xaiwsi.tissue.context import context_features
 
 WEIGHT_DECAYS = (1e-4, 1e-3, 1e-2, 1e-1)
 
@@ -174,12 +180,17 @@ def main() -> None:
     parser.add_argument("--mixed-low", type=float, default=0.1)
     parser.add_argument("--mixed-high", type=float, default=0.9)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--context", default="none", choices=["none", "ring1", "ring2", "image", "shuffled"]
+    )
+    parser.add_argument("--tile-size", type=int, default=224, help="tile size in pixels (context offsets)")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
 
     x_all = np.load(args.data_dir / "embeddings.npy").astype(np.float32)
     y_all = np.load(args.data_dir / "fractions.npy")
-    tiles = pd.read_parquet(args.data_dir / "tiles.parquet")
+    tiles = pd.read_parquet(args.data_dir / "tiles.parquet").reset_index(drop=True)
+    x_all = context_features(tiles, x_all, args.context, tile_size=args.tile_size, seed=args.seed)
     classes = json.loads((args.data_dir / "classes.json").read_text())
     train = (tiles["split"] == "train").to_numpy()
     test = (tiles["split"] == "test").to_numpy() & tiles["on_grid"].to_numpy()

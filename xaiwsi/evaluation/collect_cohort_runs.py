@@ -9,13 +9,15 @@ from `test_metrics.json`. Values are range-checked.
         --run-root runs/pathways/xai-wsi --prefix coh-1023 --output-dir outputs/cohort_runs
 
 Writes `cohort_runs.csv` (one row per run and test cohort), and `cohort_runs.md` (mean and
-sd over seeds per condition, with the generating command, for progress.md).
+sd over seeds per run group = run id without its ``-s<seed>`` suffix, e.g. one model variant
+of one condition, with the generating command, for progress.md).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -58,6 +60,7 @@ def main() -> None:
             rows.append(
                 {
                     "run": run_dir.name,
+                    "run_group": re.sub(r"-s\d+$", "", run_dir.name),
                     "train_cohorts": "+".join(train),
                     "normalization": data.get("target_normalization", "per_cohort"),
                     "seed": config.get("seed_everything"),
@@ -78,7 +81,7 @@ def main() -> None:
     results.to_csv(args.output_dir / "cohort_runs.csv", index=False)
 
     metrics = ["val_median_spearman", "test_median_spearman", "test_median_r2"]
-    grouped = results.groupby(["train_cohorts", "normalization", "test_cohort"])
+    grouped = results.groupby(["run_group", "train_cohorts", "normalization", "test_cohort"], sort=False)
     summary = grouped[metrics].agg(["mean", "std"])
     summary.columns = [f"{m}_{stat}" for m, stat in summary.columns]
     summary.insert(0, "n_runs", grouped.size())

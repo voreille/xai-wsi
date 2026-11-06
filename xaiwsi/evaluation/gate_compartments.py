@@ -147,7 +147,7 @@ def main() -> None:
             .median()
         )
         sections.append(
-            f"### {split} {cohort} ({frame['run'].nunique()} runs)\n\n"
+            f"#### {split} {cohort} ({frame['run'].nunique()} runs)\n\n"
             f"Median effective fraction of tiles per run: "
             f"{', '.join(f'{v:.2f}' for v in effective.to_numpy())}\n\n{markdown_table(stats)}"
         )

@@ -13,6 +13,7 @@ from xaiwsi.data.cohorts import (
 )
 from xaiwsi.data.pathway import PathwayEmbeddingDataset
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
+from xaiwsi.rna.pathways.tavernari import load_tavernari_signatures
 
 
 class PathwayDataModule(L.LightningDataModule):
@@ -86,6 +87,7 @@ class PathwayDataModule(L.LightningDataModule):
         hallmark_gmt: str,
         target_normalization: TargetNormalization,
         val_fraction: float,
+        gene_sets: str | None = None,
         split_seed: int,
         train_fraction: float,
         train_subset_seed: int,
@@ -96,6 +98,7 @@ class PathwayDataModule(L.LightningDataModule):
         self.train_cohorts = [c.resolve(processed_root, embedding) for c in train_cohorts]
         self.test_cohorts = [c.resolve(processed_root, embedding) for c in test_cohorts]
         self.hallmark_gmt = Path(hallmark_gmt)
+        self.gene_sets = Path(gene_sets) if gene_sets is not None else None
         self.target_normalization = target_normalization
 
         self.val_fraction = val_fraction
@@ -119,7 +122,10 @@ class PathwayDataModule(L.LightningDataModule):
         if self._is_setup:
             return
 
-        hallmarks = load_hallmarks(self.hallmark_gmt)
+        if self.gene_sets is not None:
+            hallmarks = load_tavernari_signatures(self.gene_sets)
+        else:
+            hallmarks = load_hallmarks(self.hallmark_gmt)
         self.pathway_names = list(hallmarks.keys())
 
         splits = build_pathway_splits(
@@ -183,6 +189,10 @@ class CohortPathwayDataModule(PathwayDataModule):
     ``use_train_cohorts`` trains on a subset of ``train_cohorts`` by name (one config for
     LUAD-only and LUAD+LUSC runs); test cohorts whose ``zscore_reference`` is dropped are
     skipped. ``"<name>:<n>"`` also caps that cohort's training split at n cases.
+
+    ``gene_sets`` (``.gmt``/``.json``, e.g. the approximate Tavernari lepidic/solid sets)
+    replaces the Hallmarks of ``hallmark_gmt`` as targets; the model's ``output_dim`` must
+    match its number of sets.
     """
 
     def __init__(
@@ -190,6 +200,7 @@ class CohortPathwayDataModule(PathwayDataModule):
         train_cohorts: list[CohortSpec],
         test_cohorts: list[CohortSpec],
         hallmark_gmt: str,
+        gene_sets: str | None = None,
         use_train_cohorts: list[str] | None = None,
         processed_root: str | None = None,
         embedding: str = "h-optimus-1",
@@ -213,6 +224,7 @@ class CohortPathwayDataModule(PathwayDataModule):
             processed_root=processed_root,
             embedding=embedding,
             hallmark_gmt=hallmark_gmt,
+            gene_sets=gene_sets,
             target_normalization=target_normalization,
             val_fraction=val_fraction,
             split_seed=split_seed,

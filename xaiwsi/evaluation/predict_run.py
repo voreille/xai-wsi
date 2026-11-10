@@ -32,6 +32,7 @@ from xaiwsi.data.pathway import tile_grid
 from xaiwsi.evaluation.predictions import prediction_frame
 from xaiwsi.models.pathway import PathwayPredictor
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
+from xaiwsi.rna.pathways.tavernari import load_tavernari_signatures
 from xaiwsi.training.run_config import data_args
 
 
@@ -68,7 +69,10 @@ def run_splits(config: dict, test_specs: list[CohortSpec] | None = None) -> tupl
     if data.get("use_train_cohorts"):
         train_specs, test_specs = select_cohorts(train_specs, test_specs, data["use_train_cohorts"])
     processed_root, embedding = data.get("processed_root"), data.get("embedding", "h-optimus-1")
-    gene_sets = load_hallmarks(data["hallmark_gmt"])
+    if data.get("gene_sets"):
+        gene_sets = load_tavernari_signatures(data["gene_sets"])
+    else:
+        gene_sets = load_hallmarks(data["hallmark_gmt"])
     splits = build_pathway_splits(
         [c.resolve(processed_root, embedding) for c in train_specs],
         [c.resolve(processed_root, embedding) for c in test_specs],

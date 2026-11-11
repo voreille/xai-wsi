@@ -40,6 +40,7 @@ each share on the training split).
 from __future__ import annotations
 
 import argparse
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -59,6 +60,13 @@ from xaiwsi.rna.pathways.hallmarks import load_hallmarks
 from xaiwsi.rna.pathways.tavernari import load_tavernari_signatures
 from xaiwsi.tissue.features import composition_features, load_feature_spec, tissue_dir
 from xaiwsi.training.run_config import data_args
+
+# Blocks are joined by '+'; split only where a known block starts, so table paths may contain '+'.
+BLOCK_SEPARATOR = re.compile(r"\+(?=slide-mean(?:\+|$)|composition(?:\+|$)|table:)")
+
+
+def feature_blocks(features: str) -> list[str]:
+    return BLOCK_SEPARATOR.split(features)
 
 
 def check_ranges(results: pd.DataFrame) -> None:
@@ -158,14 +166,14 @@ def main() -> None:
     test_specs = [CohortSpec(**spec) for spec in data["test_cohorts"]]
 
     for features in args.features:
-        for block in features.split("+"):
+        for block in feature_blocks(features):
             if block not in ("slide-mean", "composition") and not block.startswith("table:"):
                 raise SystemExit(f"Unknown feature block {block!r} in {features!r}")
     table_paths = sorted(
-        {b.removeprefix("table:") for f in args.features for b in f.split("+") if b.startswith("table:")}
+        {b.removeprefix("table:") for f in args.features for b in feature_blocks(f) if b.startswith("table:")}
     )
     feature_spec = None
-    if any("composition" in f.split("+") for f in args.features):
+    if any("composition" in feature_blocks(f) for f in args.features):
         feature_spec = load_feature_spec(args.composition_spec)
     rows, correlations = [], []
     for condition in args.conditions:
@@ -217,7 +225,7 @@ def main() -> None:
             def inputs(part, features: str) -> np.ndarray:
                 slide_ids = part.pairs["slide_id"].astype(str)
                 blocks = []
-                for block in features.split("+"):
+                for block in feature_blocks(features):
                     if block == "slide-mean":
                         blocks.append(means[part.cohort].loc[slide_ids].to_numpy())
                     elif block == "composition":

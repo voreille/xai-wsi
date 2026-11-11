@@ -1061,6 +1061,21 @@ bootstrap 95% CIs over patients (CPTAC has only 54 OS events).
 - **Baselines:** chance level, mean-pooled tiles, and PCA as the RNA encoder.
 - **Later:** patient-level bags (concatenate one patient's slides), which matters for
   CPTAC.
+- **Linear CCA as the reference shared space (2026-11-11, `docs/progress.md` 2c):** the
+  shared axes are read through Hallmarks, growth-pattern sets, tissue composition and
+  single genes, with exact tile maps. Axis 3 of slide means vs BulkFormer is an
+  NKX2-1-low mucinous axis that separates mucinous cases on CPTAC (AUC 0.87–0.97, few
+  labelled cases).
+  - **TODO: blinded pathologist review of axis 3 on CPTAC.**
+    - Slides: the 8 highest, about 8 from the middle and 3–5 lowest, shuffled, with no
+      scores or labels shown.
+    - Ask per slide: mucinous yes/no and the percentage of mucinous component.
+    - Provide a package: anonymised IDs (the mapping to slide IDs kept apart), NAS paths,
+      and the 2–3 highest-scoring tile regions per slide as level-0 coordinates.
+    - Score the answers as another label group in `xaiwsi.evaluation.cca_axis_labels`.
+    - Main open question: are the unlabelled high scorers (C3L-00973, C3N-02193,
+      C3N-02948) missed mucinous cases or false positives?
+  - Then read the other axes that hold up out of sample in the same way.
 
 ### 2d. Downstream evaluation of the frozen encoders
 - **Hallmarks from WSI** (no RNA input):

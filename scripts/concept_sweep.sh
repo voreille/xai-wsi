@@ -2,14 +2,14 @@
 # README 2f: SAE concept-bag sweep (dictionary size x sparsity x SAE training cohorts x seed).
 # Each job trains a TopK SAE on the training-split tiles of TRAIN_COHORTS
 # (xaiwsi.concepts.train_sae), writes the concept bags of the probe cohorts
-# (xaiwsi.concepts.bags) and runs the Hallmark ridge probe on them for the TCGA-LUAD
-# condition (xaiwsi.evaluation.cohort_probe; slide mean, mean activation, active fraction), with
+# (xaiwsi.concepts.bags) and runs the Hallmark ridge probe on them for CONDITION (default TCGA-LUAD;
+# xaiwsi.evaluation.cohort_probe; slide mean, mean activation, active fraction), with
 # and without clipping the bags to their training range and dropping rarely active concepts.
 # Choose settings on TCGA-val only; CPTAC is reported, never used to pick.
 #
 # Names: <cohorts>_k<latents>_top<k>_s<seed> (cohorts joined by '+'), SAE under
 # data/processed/sae/<embedding>/<name>/, bags under <cohort dir>/concepts/<name>/, probe under
-# outputs/concept_sweep/<name>/. Finished steps are skipped on rerun.
+# OUT_ROOT/<name>/. Finished steps are skipped on rerun.
 #
 # Time per job on an H100: about 3 min tile loading, 1-10 min training (K), 5 min bags, 3 min
 # probe. GPU memory: training tiles in fp16 (LUAD 5.6M tiles ~17 GB, LUAD+LUSC 11.8M ~36 GB) plus the K-wide
@@ -18,9 +18,13 @@
 # Usage (on the host, from the repo root):
 #   GPUS="0 1" bash scripts/concept_sweep.sh
 #   LATENTS="4096" TOPK="32" SEEDS="0 1 2" GPUS="0" bash scripts/concept_sweep.sh
+# LSCC replication (TCGA-LUSC condition, CPTAC-LSCC test; reuses the LUAD+LUSC SAEs, trains LUSC-only ones):
+#   CONDITION=tcga-lusc PROBE_COHORTS="tcga-lusc cptac-lusc" TRAIN_COHORT_SETS="tcga-lusc tcga-luad,tcga-lusc" \
+#       OUT_ROOT=outputs/concept_sweep_lusc GPUS="0 1" bash scripts/concept_sweep.sh
 # Collect:
 #   uv run python -m xaiwsi.evaluation.collect_concept_runs --sweep-dir outputs/concept_sweep \
 #       --output outputs/concept_sweep/summary
+#   (and --sweep-dir outputs/concept_sweep_lusc --output outputs/concept_sweep_lusc/summary)
 set -euo pipefail
 
 CONFIG=${CONFIG:-configs/training/pathway_cohorts.yaml}
@@ -30,6 +34,7 @@ TOPK=${TOPK:-"16 32 64"}
 TRAIN_COHORT_SETS=${TRAIN_COHORT_SETS:-"tcga-luad tcga-luad,tcga-lusc"}
 SEEDS=${SEEDS:-"0"}
 EPOCHS=${EPOCHS:-30}
+CONDITION=${CONDITION:-tcga-luad}
 PROBE_COHORTS=${PROBE_COHORTS:-"tcga-luad cptac-luad"}
 TABLE_MIN_ACTIVE=${TABLE_MIN_ACTIVE:-"0 0.05"}
 TABLE_TRANSFORMS=${TABLE_TRANSFORMS:-"none clip"}
@@ -55,13 +60,16 @@ run_one() {
             --output-dir "$sae_dir" > "$LOG_DIR/$name.train.log" 2>&1 \
             || { echo "FAIL train $name, see $LOG_DIR/$name.train.log"; return 1; }
     fi
-    if [[ -f "data/processed/cptac-luad/concepts/$name/slides_mean.parquet" ]]; then
+    local missing=()
+    for cohort in $PROBE_COHORTS; do
+        [[ -f "data/processed/$cohort/concepts/$name/slides_mean.parquet" ]] || missing+=("$cohort")
+    done
+    if (( ${#missing[@]} == 0 )); then
         echo "skip bags $name"
     else
-        echo "bags $name"
-        # shellcheck disable=SC2086
+        echo "bags $name (${missing[*]})"
         CUDA_VISIBLE_DEVICES=$gpu uv run python -m xaiwsi.concepts.bags \
-            --config "$CONFIG" --cohorts $PROBE_COHORTS --sae "$sae_dir" \
+            --config "$CONFIG" --cohorts "${missing[@]}" --sae "$sae_dir" \
             > "$LOG_DIR/$name.bags.log" 2>&1 \
             || { echo "FAIL bags $name, see $LOG_DIR/$name.bags.log"; return 1; }
     fi
@@ -72,7 +80,7 @@ run_one() {
     echo "probe $name"
     # shellcheck disable=SC2086
     uv run python -m xaiwsi.evaluation.cohort_probe \
-        --config "$CONFIG" --conditions tcga-luad \
+        --config "$CONFIG" --conditions "$CONDITION" \
         --table-min-active $TABLE_MIN_ACTIVE --table-transforms $TABLE_TRANSFORMS \
         --features slide-mean \
             "table:concepts/$name/slides_mean.parquet" "table:concepts/$name/slides_frac.parquet" \

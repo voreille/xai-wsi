@@ -18,6 +18,9 @@ variates to the 50 Hallmark mean-z scores of the same cases (targets as in a
         --pathway-config configs/training/pathway_cohorts.yaml \\
         --slide-means-dir outputs/cohort_probe --output-dir outputs/shared_structure
 
+``--gene-sets`` relates the same axes to other gene sets instead (e.g. the approximate
+Tavernari lepidic/solid sets and their L2S axes); use another ``--output-dir``.
+
 Writes ``cca_axis_hallmarks.csv`` (axis x side x split x pathway), ``cca_hallmark_probe.csv``
 and ``cca_hallmarks.md``.
 """
@@ -39,16 +42,26 @@ from xaiwsi.evaluation.cohort_probe import markdown_table
 from xaiwsi.evaluation.learning_curve import make_probe
 from xaiwsi.evaluation.shared_structure import SPLITS, LinearCCA, check_ranges, load_frozen
 from xaiwsi.metrics.pathways import compute_pathway_metrics
+from xaiwsi.evaluation.geneset_vs_hallmarks import add_axis_scores
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
+from xaiwsi.rna.pathways.tavernari import load_tavernari_signatures
 from xaiwsi.training.run_config import data_args
 
 SPLIT_NAMES = {"train": "tcga-train", "val": "tcga-val", "test": "cptac"}
 
 
-def hallmark_targets(pathway_config: Path, train_cohort: str, test_cohort: str) -> tuple[dict, list[str]]:
-    """{split: DataFrame case_id x pathway} of mean-z targets for one train/test cohort."""
+def hallmark_targets(
+    pathway_config: Path, train_cohort: str, test_cohort: str, gene_sets_path: Path | None = None
+) -> tuple[dict, list[str]]:
+    """{split: DataFrame case_id x pathway} of mean-z targets for one train/test cohort.
+
+    ``gene_sets_path`` (Tavernari ``.json``/``.gmt``) replaces the config's Hallmarks; its
+    ``L2S_<src>`` = solid - lepidic axes are added."""
     data = data_args(yaml.safe_load(pathway_config.read_text()))
-    gene_sets = load_hallmarks(data["hallmark_gmt"])
+    if gene_sets_path is None:
+        gene_sets = load_hallmarks(data["hallmark_gmt"])
+    else:
+        gene_sets = load_tavernari_signatures(gene_sets_path)
     processed_root, embedding = data.get("processed_root"), data.get("embedding", "h-optimus-1")
     train_used, test_used = select_cohorts(
         [CohortSpec(**s) for s in data["train_cohorts"]],
@@ -65,10 +78,10 @@ def hallmark_targets(pathway_config: Path, train_cohort: str, test_cohort: str) 
     )
     out = {}
     for split, (part,) in splits.items():
-        scores = part.scores.loc[part.pairs["sample_id"].astype(str)]
+        scores = part.scores.loc[part.pairs["sample_id"].astype(str), list(gene_sets)]
         scores.index = part.pairs["case_id"].astype(str)
-        out[split] = scores
-    return out, list(gene_sets)
+        out[split] = add_axis_scores(scores) if gene_sets_path is not None else scores
+    return out, list(out["train"].columns)
 
 
 def spearman_columns(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -83,6 +96,10 @@ def main() -> None:
     parser.add_argument("--pathway-config", type=Path, required=True, help="CohortPathwayDataModule config")
     parser.add_argument("--train-cohort", default="tcga-luad")
     parser.add_argument("--test-cohort", default="cptac-luad")
+    parser.add_argument(
+        "--gene-sets", type=Path, default=None,
+        help="Tavernari .json/.gmt instead of the Hallmarks (adds the L2S_<src> axes)",
+    )
     parser.add_argument("--pca-dim", type=int, default=32)
     parser.add_argument("--axes", type=int, default=6, help="axes described in the Markdown")
     parser.add_argument("--probe-ks", type=int, nargs="+", default=[1, 2, 3, 4, 5, 8, 16, 32])
@@ -93,7 +110,7 @@ def main() -> None:
 
     data = data_args(yaml.safe_load(args.config.read_text()))
     splits = load_frozen(data, args.slide_means_dir or args.output_dir)
-    targets, names = hallmark_targets(args.pathway_config, args.train_cohort, args.test_cohort)
+    targets, names = hallmark_targets(args.pathway_config, args.train_cohort, args.test_cohort, args.gene_sets)
     # Same case split in both configs (split_cases, same seed), checked here.
     y_hall = {}
     for split in SPLITS:

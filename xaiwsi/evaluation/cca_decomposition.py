@@ -97,20 +97,39 @@ def tile_axis_scores(tiles: np.ndarray, x_mean: np.ndarray, x_std: np.ndarray, c
     return (standardized - cca.mx) @ cca.wx[:, [a - 1 for a in axes]]
 
 
-def draw_maps(args, splits, cca, label: str, axes: list[int], u_val: np.ndarray, out_dir: Path) -> list[dict]:
+def draw_maps(
+    args,
+    splits,
+    cca,
+    label: str,
+    axes: list[int],
+    u_val: np.ndarray,
+    out_dir: Path,
+    split: str = "val",
+    n_high: int | None = None,
+    n_low: int | None = None,
+    notes: dict[str, str] | None = None,
+) -> list[dict]:
+    """Tile maps of the slide axes on the ``n_high`` highest and ``n_low`` lowest slides of
+    ``split`` (default ``--map-slides`` each); ``notes`` (case_id -> text) annotates panels."""
     from PIL import Image, ImageDraw
 
     from xaiwsi.visualization.pathways import load_thumbnail, rasterize_tile_values_to_thumbnail, render_heatmap_overlay
 
     data = data_args(yaml.safe_load(args.config.read_text()))
-    slides_root = Path(data["tcga_slides_root_dir"])
-    store = splits["val"]["dataset"].embedding_store
-    slide_ids = splits["val"]["pairs"]["slide_id"].astype(str).to_numpy()
+    slides_root = Path(data["cptac_slides_root_dir" if split == "test" else "tcga_slides_root_dir"])
+    store = splits[split]["dataset"].embedding_store
+    slide_ids = splits[split]["pairs"]["slide_id"].astype(str).to_numpy()
+    case_ids = splits[split]["pairs"]["case_id"].astype(str).to_numpy()
+    n_high = args.map_slides if n_high is None else n_high
+    n_low = args.map_slides if n_low is None else n_low
+    notes = notes or {}
     x_mean, x_std = splits["train"]["x_mean"], splits["train"]["x_std"]
     records = []
     for axis in axes:
         order = np.argsort(u_val[:, axis - 1])
-        chosen = [("high", i) for i in order[::-1][: args.map_slides]] + [("low", i) for i in order[: args.map_slides]]
+        chosen = [(f"high {r + 1}", i) for r, i in enumerate(order[::-1][:n_high])]
+        chosen += [(f"low {r + 1}", i) for r, i in enumerate(order[:n_low])]
         maps = []
         for side, i in chosen:
             tiles, coords, attrs = store.load(slide_ids[i])
@@ -120,8 +139,10 @@ def draw_maps(args, splits, cca, label: str, axes: list[int], u_val: np.ndarray,
                 raise ValueError(f"{slide_ids[i]} axis {axis}: tile mean {scores.mean():.6f} != slide score {slide_u:.6f}")
             thumbnail = load_thumbnail(slides_root / str(attrs["relative_wsi_path"]), args.map_size)
             heatmap = rasterize_tile_values_to_thumbnail(np.asarray(coords), scores, attrs, thumbnail)
-            maps.append((side, slide_ids[i], slide_u, thumbnail, heatmap, scores))
-            records.append({"rna": label, "axis": axis, "side": side, "slide_id": slide_ids[i], "slide_score": slide_u,
+            maps.append((side, f"{slide_ids[i]}  {notes.get(case_ids[i], '')}", slide_u, thumbnail, heatmap, scores))
+            records.append({"rna": label, "axis": axis, "split": SPLIT_NAMES[split], "side": side,
+                            "case_id": case_ids[i], "note": notes.get(case_ids[i], ""),
+                            "slide_id": slide_ids[i], "slide_score": slide_u,
                             "tile_p05": np.percentile(scores, 5), "tile_p95": np.percentile(scores, 95)})
         # Shared colour scale per axis (centred on 0 = the train mean slide), so slides compare.
         vmax = float(np.percentile(np.abs(np.concatenate([m[5] for m in maps])), 99))
@@ -140,7 +161,8 @@ def draw_maps(args, splits, cca, label: str, axes: list[int], u_val: np.ndarray,
             montage.paste(p, (0, y))
             y += p.height
         out_dir.mkdir(parents=True, exist_ok=True)
-        montage.save(out_dir / f"{label}_axis{axis}.jpg", quality=88)
+        suffix = "" if split == "val" else f"_{SPLIT_NAMES[split]}"
+        montage.save(out_dir / f"{label}_axis{axis}{suffix}.jpg", quality=88)
     return records
 
 

@@ -60,10 +60,12 @@ RETRIEVAL_KS = (2, 4, 8, 16, 32, 64)
 
 
 class LinearCCA:
-    """CCA after a per-modality PCA whitening to ``pca_dim`` components (fit on train)."""
+    """CCA after a per-modality PCA whitening to ``pca_dim`` components (fit on train);
+    ``y_dim`` sets another number of components for the second modality."""
 
-    def __init__(self, pca_dim: int):
+    def __init__(self, pca_dim: int, y_dim: int | None = None):
         self.pca_dim = pca_dim
+        self.y_dim = pca_dim if y_dim is None else y_dim
 
     @staticmethod
     def _whitener(x: np.ndarray, dim: int) -> tuple[np.ndarray, np.ndarray]:
@@ -74,7 +76,7 @@ class LinearCCA:
 
     def fit(self, x: np.ndarray, y: np.ndarray, y_perm: np.ndarray | None = None) -> LinearCCA:
         self.mx, wx = self._whitener(x, self.pca_dim)
-        self.my, wy = self._whitener(y, self.pca_dim)
+        self.my, wy = self._whitener(y, self.y_dim)
         self.set_pairing(x, y if y_perm is None else y_perm, wx, wy)
         return self
 
@@ -130,6 +132,7 @@ def load_frozen(data: dict, slide_means_dir: Path) -> dict[str, dict]:
     mean, std = out["train"]["x"].mean(0), out["train"]["x"].std(0) + 1e-8
     for split in SPLITS:
         out[split]["x"] = (out[split]["x"] - mean) / std
+    out["train"]["x_mean"], out["train"]["x_std"] = mean, std
     for split in ("train", "val"):
         out[split]["site"] = tcga_site(out[split]["pairs"]["case_id"]).to_numpy()
     return out

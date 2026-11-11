@@ -1117,6 +1117,82 @@ bootstrap 95% CIs over patients (CPTAC has only 54 OS events).
 - Cross-attention between tiles and the RNA embedding, with survival or other
   non-RNA-derived targets only.
 
+### 2f. Unsupervised slide encoders: PANTHER and SAE concept bags (current, 2026-11-11)
+
+**Why.** The frozen slide mean is still the best slide representation for Hallmarks:
+supervised pooling, compartment pooling, spatial models and contrastive alignment all
+match it at best on CPTAC. This line asks whether an unsupervised description of the tile
+distribution, learned on lung tiles, can match the mean with a compact representation
+whose dimensions can be read and filtered. It pulls the tile SAE of stage 4 (item 1)
+forward.
+
+**PANTHER (reference arm).** Song et al., CVPR 2024
+([arXiv 2405.11643](https://arxiv.org/abs/2405.11643)): C prototypes from K-means on
+training tiles, then a per-slide Gaussian mixture (a few EM steps from the prototypes);
+the slide vector concatenates, per component, the mixture weight π_c, the mean μ_c and
+the diagonal covariance Σ_c. With C = 16 and D = 1536 that is about 49k dimensions for
+about 380 training cases.
+- π_c alone is tile composition, and μ_c is a soft-gated mean per prototype, so PANTHER
+  is the unsupervised analogue of composition shares (A) and compartment pooling (B1/B2)
+  (`docs/progress.md`, "Tissue composition and compartment pooling"). Those gained on
+  TCGA val, not on CPTAC.
+- A linear head on [π, μ] cannot form Σ_c π_c μ_c, which is the slide mean, so the
+  variants include the mass-weighted means π_c μ_c (this set contains the mean).
+- Variants: C ∈ {8, 16, 32}; [π], [π, μ], [π, μ, Σ], [π_c μ_c]; on the raw tiles and on
+  the tile PCA (`xaiwsi.data.tile_pca`, 64–128 dims).
+- Reimplemented in plain torch (no vendored code).
+
+**SAE concept bags (main arm).**
+- A TopK SAE (Gao et al. 2024) on H-optimus-1 tiles of the training split only (TCGA-LUAD,
+  optionally + TCGA-LUSC). CPTAC tiles are never used to fit it (a CPTAC-fitted variant
+  would be a transductive diagnostic only).
+- Slide representation: per concept k, the mean activation over tiles
+  ā_k = mean_i a_ik, and the fraction of tiles where k is active.
+  - Size: K values per slide (dictionary sizes 1k–16k), against about 49k for PANTHER,
+    before any filtering.
+  - It contains the slide mean: slide mean ≈ D ā + b up to reconstruction error, so a
+    linear probe on ā can do at least as well as on the mean. Because the TopK encoding is
+    nonlinear per tile, ā also carries distribution information that the mean lacks: it
+    is PANTHER's π at a much finer level.
+- **Concept filtering** (all decided on TCGA-train only):
+  - dead and rare concepts;
+  - background and artifact concepts, flagged at tile level with the IGNITE probe and
+    the tile-QC classifier;
+  - site/stain concepts: those that predict the TCGA tissue source site. The slide mean
+    predicts site at 0.89 balanced accuracy, so this is the direct test of whether
+    removing site concepts improves the transfer to CPTAC.
+  - sparse selection (L1/elastic-net probe), reported as a curve of performance against
+    the number of concepts kept.
+- **Reading concepts:** top tiles per concept; tile-level correlation with the IGNITE and
+  ANORAK probes; concept maps on the tile grid (per-tile activation, exact: the slide
+  value is the mean of the map); CCA of concept bags vs BulkFormer, whose loadings are
+  concepts (compare with the CCA axes of 2c, e.g. the mucinous axis 3).
+- **Hybrid, if both arms justify it:** SAE concepts as PANTHER components, i.e.
+  concept-gated means for a few selected concepts.
+
+**Concept ↔ outcome reading (survival).** OS is an RNA-independent label not used so far.
+TCGA-LUAD has 188 OS events (about 130 in the training split), CPTAC-LUAD 57.
+- It is an evaluation and reading axis, not a training signal for the representation
+  (too few events, and it would turn the description back into a risk score).
+- Univariate Cox per concept on TCGA-train, adjusted for stage and age. Expected:
+  lepidic-like concepts protective, solid/micropapillary-like concepts harmful.
+- Survival cannot separate acinar from papillary: both are IASLC grade 2 because their
+  outcomes are similar. It can flag high-risk concepts inside "acinar" (cribriform,
+  complex glandular, the grade-3 rule), which are then checked through their top tiles.
+- Cox arms of 2d on fixed vectors: slide mean, concept bag, PANTHER, CCA axes,
+  BulkFormer and clinical covariates; an L1-penalised Cox on concepts as a compact
+  prognostic signature. C-index on TCGA-val, CPTAC once. Everything is adjusted for
+  stage: a concept counts only if it adds beyond stage.
+
+**Evaluation and success criterion.**
+- Same splits, mean-z targets and ridge probe as `xaiwsi.evaluation.cohort_probe`
+  (`--features` reads per-slide feature tables), `paired_bootstrap` against the slide
+  mean and against B2 compartment pooling, site balanced accuracy for every
+  representation. CPTAC only at the end.
+- Success is not only beating the mean on Hallmarks. It is matching the slide mean with
+  far fewer, readable dimensions and lower site accuracy. Better CPTAC transfer would be
+  a bonus.
+
 ## Stage 3: Other cancer types (conditional on stage 2)
 
 Update 2026-10-23: more TCGA/CPTAC cohorts are also a lever against the overfitting of the LUAD models (about 470 TCGA training/validation cases), since Hallmarks are a cross-cancer target. They can be pulled in earlier than stage 2 completion if regularization alone does not suffice.
@@ -1134,7 +1210,8 @@ At token level there is plenty of data: about 8M TCGA tiles and about 10M BulkFo
 tokens (529 samples × 20,010 genes). SAEs are trained on tokens, and patient-level
 analysis comes afterwards.
 
-1. **Unimodal tile SAE** on H-optimus-1 tile embeddings, the baseline:
+1. **Unimodal tile SAE** on H-optimus-1 tile embeddings, the baseline (started early as
+   the concept bags of 2f):
    - use a TopK SAE (Gao et al. 2024) for stable sparsity;
    - interpret features through their top tiles, and through patient-level correlations
      of each feature's active-tile fraction with Hallmarks, BulkFormer embeddings,

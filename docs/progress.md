@@ -2451,6 +2451,14 @@ Overall survival (C-index, 95% CI):
 
 ## Decisions log
 
+- **2026-11-11:** new line, README 2f: unsupervised slide encoders learned on lung tiles,
+  PANTHER (reference) and TopK-SAE concept bags (main), because the frozen slide mean is
+  still the best slide representation. The concept bag (mean activation per concept) is
+  far smaller than PANTHER's ~49k dimensions and contains the slide mean up to
+  reconstruction error; concepts are filtered (artifact, background, site) on TCGA-train.
+  Overall survival enters as an evaluation and reading axis (per-concept Cox adjusted
+  for stage), not as a training target; it cannot separate acinar from papillary (both
+  IASLC grade 2). Work stays on `main`.
 - **2026-11-11:** the spatial-layout line is closed. Four tests (NCA on the tile grid for
   Hallmarks, 2 rounds; ANORAK probe with neighbour context; grid smoothing of tile pattern
   votes on DHMC; NCA trained on TCGA L2S and tested zero-shot on DHMC predominant pattern),

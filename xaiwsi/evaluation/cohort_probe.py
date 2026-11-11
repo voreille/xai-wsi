@@ -25,11 +25,13 @@ does not flag as artifacts (slide means cached with a ``_qc<threshold>`` suffix)
 approximate Tavernari lepidic/solid sets); every ``LEPIDIC_<src>``/``SOLID_<src>`` pair also
 gets the axis ``L2S_<src>`` = solid - lepidic, for targets and predictions alike.
 
-``--features`` picks the slide features of the ridge: ``slide-mean`` (default),
-``composition`` (the few tissue shares of ``--composition-spec``, from the applied
-tile-composition probes of ``xaiwsi.tissue.apply``) or ``slide-mean+composition``. Each
-feature set adds a ``features`` column to the metrics; non-default sets suffix the
-prediction files with ``__<features>``. With composition features, it also writes
+``--features`` picks the slide features of the ridge, as ``+``-joined blocks: ``slide-mean``
+(default), ``composition`` (the few tissue shares of ``--composition-spec``, from the applied
+tile-composition probes of ``xaiwsi.tissue.apply``) and ``table:<path>``, a slide_id-indexed
+parquet relative to each cohort's directory (e.g. the concept bags of ``xaiwsi.concepts.bags``,
+``table:concepts/<sae>/slides_mean.parquet``). Each feature set adds a ``features`` column to
+the metrics; non-default sets suffix the prediction files with ``__<features>`` (``/`` and
+``:`` replaced, ``.parquet`` dropped). With composition features, it also writes
 ``composition_correlations.csv`` (Spearman of each share with each true target, per split
 and cohort) and ``composition_correlations.md`` (the three targets most correlated with
 each share on the training split).
@@ -129,7 +131,7 @@ def main() -> None:
         "--features",
         nargs="+",
         default=["slide-mean"],
-        choices=["slide-mean", "composition", "slide-mean+composition"],
+        help="+-joined blocks: slide-mean, composition, table:<parquet path relative to the cohort dir>",
     )
     parser.add_argument(
         "--composition-spec", type=Path, default=Path("configs/tissue/composition_features.yaml")
@@ -155,8 +157,15 @@ def main() -> None:
     train_specs = [CohortSpec(**spec) for spec in data["train_cohorts"]]
     test_specs = [CohortSpec(**spec) for spec in data["test_cohorts"]]
 
+    for features in args.features:
+        for block in features.split("+"):
+            if block not in ("slide-mean", "composition") and not block.startswith("table:"):
+                raise SystemExit(f"Unknown feature block {block!r} in {features!r}")
+    table_paths = sorted(
+        {b.removeprefix("table:") for f in args.features for b in f.split("+") if b.startswith("table:")}
+    )
     feature_spec = None
-    if any("composition" in f for f in args.features):
+    if any("composition" in f.split("+") for f in args.features):
         feature_spec = load_feature_spec(args.composition_spec)
     rows, correlations = [], []
     for condition in args.conditions:
@@ -172,7 +181,7 @@ def main() -> None:
             )
 
             # One cache per cohort and store, covering all its paired slides.
-            means, shares = {}, {}
+            means, shares, tables = {}, {}, {}
             by_cohort: dict[str, list] = {}
             for parts in splits.values():
                 for part in parts:
@@ -194,6 +203,13 @@ def main() -> None:
                 )
                 if feature_spec is not None:
                     shares[cohort] = composition_features(tissue_dir(embedding_dir), feature_spec)
+                for path in table_paths:
+                    table = pd.read_parquet(embedding_dir.parent.parent / path)
+                    missing = sorted(set(slide_ids) - set(table.index.astype(str)))
+                    if missing:
+                        raise SystemExit(f"{cohort}: {len(missing)} slides missing from {path}, e.g. {missing[:3]}")
+                    table.index = table.index.astype(str)
+                    tables[cohort, path] = table
 
             def targets(part) -> np.ndarray:
                 return part.scores.loc[part.pairs["sample_id"].astype(str), names].to_numpy()
@@ -201,10 +217,13 @@ def main() -> None:
             def inputs(part, features: str) -> np.ndarray:
                 slide_ids = part.pairs["slide_id"].astype(str)
                 blocks = []
-                if features in ("slide-mean", "slide-mean+composition"):
-                    blocks.append(means[part.cohort].loc[slide_ids].to_numpy())
-                if features in ("composition", "slide-mean+composition"):
-                    blocks.append(shares[part.cohort].loc[slide_ids].to_numpy())
+                for block in features.split("+"):
+                    if block == "slide-mean":
+                        blocks.append(means[part.cohort].loc[slide_ids].to_numpy())
+                    elif block == "composition":
+                        blocks.append(shares[part.cohort].loc[slide_ids].to_numpy())
+                    else:
+                        blocks.append(tables[part.cohort, block.removeprefix("table:")].loc[slide_ids].to_numpy())
                 return np.concatenate(blocks, axis=1)
 
             if feature_spec is not None:
@@ -261,7 +280,7 @@ def main() -> None:
                         )
                 stem = f"{condition}__{normalization}"
                 if features != "slide-mean":
-                    stem += f"__{features}"
+                    stem += "__" + features.replace(".parquet", "").replace("/", "-").replace(":", "-")
                 pd.concat(predictions, ignore_index=True).to_parquet(
                     args.output_dir / "predictions" / f"{stem}.parquet"
                 )

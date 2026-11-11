@@ -3,7 +3,8 @@
 # Each job trains a TopK SAE on the training-split tiles of TRAIN_COHORTS
 # (xaiwsi.concepts.train_sae), writes the concept bags of the probe cohorts
 # (xaiwsi.concepts.bags) and runs the Hallmark ridge probe on them for the TCGA-LUAD
-# condition (xaiwsi.evaluation.cohort_probe; slide mean, mean activation, active fraction).
+# condition (xaiwsi.evaluation.cohort_probe; slide mean, mean activation, active fraction), with
+# and without clipping the bags to their training range and dropping rarely active concepts.
 # Choose settings on TCGA-val only; CPTAC is reported, never used to pick.
 #
 # Names: <cohorts>_k<latents>_top<k>_s<seed> (cohorts joined by '+'), SAE under
@@ -30,6 +31,8 @@ TRAIN_COHORT_SETS=${TRAIN_COHORT_SETS:-"tcga-luad tcga-luad,tcga-lusc"}
 SEEDS=${SEEDS:-"0"}
 EPOCHS=${EPOCHS:-30}
 PROBE_COHORTS=${PROBE_COHORTS:-"tcga-luad cptac-luad"}
+TABLE_MIN_ACTIVE=${TABLE_MIN_ACTIVE:-"0 0.05"}
+TABLE_TRANSFORMS=${TABLE_TRANSFORMS:-"none clip"}
 GPUS=${GPUS:-"0"}
 OUT_ROOT=${OUT_ROOT:-outputs/concept_sweep}
 LOG_DIR=${LOG_DIR:-$OUT_ROOT/logs}
@@ -67,8 +70,10 @@ run_one() {
         return 0
     fi
     echo "probe $name"
+    # shellcheck disable=SC2086
     uv run python -m xaiwsi.evaluation.cohort_probe \
         --config "$CONFIG" --conditions tcga-luad \
+        --table-min-active $TABLE_MIN_ACTIVE --table-transforms $TABLE_TRANSFORMS \
         --features slide-mean \
             "table:concepts/$name/slides_mean.parquet" "table:concepts/$name/slides_frac.parquet" \
         --output-dir "$probe_dir" > "$LOG_DIR/$name.probe.log" 2>&1 \

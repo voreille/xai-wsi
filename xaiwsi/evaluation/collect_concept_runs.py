@@ -3,7 +3,7 @@
 Reads ``<sweep-dir>/<name>/probe_metrics.csv`` (``cohort_probe``) and the SAE's
 ``train.json`` (``data/processed/sae/<embedding>/<name>/``), keeps the TCGA-LUAD val and
 CPTAC-LUAD test rows, and writes ``<output>.csv`` and ``<output>.md`` (one row per SAE and
-feature kind, plus the slide-mean baseline once, with the generating command). Fails on
+feature kind and table preprocessing (``--table-min-active``/``--table-transforms``), plus the slide-mean baseline once, with the generating command). Fails on
 out-of-range metrics and on runs whose slide-mean baseline differs (they would not share
 targets).
 
@@ -35,6 +35,8 @@ def main() -> None:
     for path in sorted(args.sweep_dir.glob("*/probe_metrics.csv")):
         name = path.parent.name
         metrics = pd.read_csv(path)
+        if "table_prep" not in metrics:  # written before cohort_probe had table preprocessing
+            metrics["table_prep"] = "min0_none"
         check_ranges(metrics)
         train = json.loads((args.sae_root / name / "train.json").read_text())
         settings = train["settings"]
@@ -53,6 +55,7 @@ def main() -> None:
                     "seed": settings["seed"],
                     "val_fvu": train["final"]["val_fvu"],
                     "bag": row["features"].rsplit("slides_", 1)[-1].removesuffix(".parquet"),
+                    "prep": row["table_prep"],
                     "key": key,
                     **value,
                 }
@@ -65,12 +68,12 @@ def main() -> None:
         raise ValueError(f"Slide-mean baselines differ between runs:\n{spread}")
 
     long = pd.DataFrame(rows)
-    index = ["sae", "train_cohorts", "latents", "k", "seed", "val_fvu", "bag"]
+    index = ["sae", "train_cohorts", "latents", "k", "seed", "val_fvu", "bag", "prep"]
     wide = long.pivot_table(index=index, columns="key", values=["median_spearman", "median_r2"])
     wide.columns = [f"{metric} {key}" for metric, key in wide.columns]
     wide = wide.reset_index()
     first = base.drop_duplicates("key").set_index("key")
-    baseline_row = {c: "" for c in index} | {"sae": "slide mean", "bag": "-"}
+    baseline_row = {c: "" for c in index} | {"sae": "slide mean", "bag": "-", "prep": "-"}
     for metric in ("median_spearman", "median_r2"):
         for key in first.index:
             baseline_row[f"{metric} {key}"] = first.loc[key, metric]

@@ -43,6 +43,7 @@ import argparse
 import re
 import shlex
 import sys
+from itertools import product
 from pathlib import Path
 
 import numpy as np
@@ -67,6 +68,32 @@ BLOCK_SEPARATOR = re.compile(r"\+(?=slide-mean(?:\+|$)|composition(?:\+|$)|table
 
 def feature_blocks(features: str) -> list[str]:
     return BLOCK_SEPARATOR.split(features)
+
+
+class TablePrep:
+    """Preprocessing of one table block, fitted on its training rows.
+
+    Drops columns active (> 0) in fewer than ``min_active`` of the training slides, then
+    with ``transform="clip"`` clips each column to its training range. Both guard against
+    columns that are near-constant on the training cohort: the probe's StandardScaler
+    divides by their tiny spread, so values seen only in a test cohort blow up.
+    """
+
+    def __init__(self, x_train: np.ndarray, min_active: float, transform: str) -> None:
+        self.keep = (x_train > 0).mean(axis=0) >= min_active
+        if not self.keep.any():
+            raise SystemExit(f"min_active {min_active} drops every column")
+        self.transform = transform
+        kept = x_train[:, self.keep]
+        self.low, self.high = kept.min(axis=0), kept.max(axis=0)
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        x = x[:, self.keep]
+        return np.clip(x, self.low, self.high) if self.transform == "clip" else x
+
+
+def table_prep_label(min_active: float, transform: str) -> str:
+    return f"min{min_active:g}_{transform}"
 
 
 def check_ranges(results: pd.DataFrame) -> None:
@@ -140,6 +167,21 @@ def main() -> None:
         nargs="+",
         default=["slide-mean"],
         help="+-joined blocks: slide-mean, composition, table:<parquet path relative to the cohort dir>",
+    )
+    parser.add_argument(
+        "--table-min-active",
+        type=float,
+        nargs="+",
+        default=[0.0],
+        help="for table blocks: drop columns active in fewer than this fraction of training slides "
+        "(one probe per value)",
+    )
+    parser.add_argument(
+        "--table-transforms",
+        nargs="+",
+        default=["none"],
+        choices=["none", "clip"],
+        help="for table blocks: clip to the training range or not (one probe per value)",
     )
     parser.add_argument(
         "--composition-spec", type=Path, default=Path("configs/tissue/composition_features.yaml")
@@ -222,7 +264,7 @@ def main() -> None:
             def targets(part) -> np.ndarray:
                 return part.scores.loc[part.pairs["sample_id"].astype(str), names].to_numpy()
 
-            def inputs(part, features: str) -> np.ndarray:
+            def raw_blocks(part, features: str) -> list[np.ndarray]:
                 slide_ids = part.pairs["slide_id"].astype(str)
                 blocks = []
                 for block in feature_blocks(features):
@@ -232,7 +274,7 @@ def main() -> None:
                         blocks.append(shares[part.cohort].loc[slide_ids].to_numpy())
                     else:
                         blocks.append(tables[part.cohort, block.removeprefix("table:")].loc[slide_ids].to_numpy())
-                return np.concatenate(blocks, axis=1)
+                return blocks
 
             if feature_spec is not None:
                 for split, parts in splits.items():
@@ -256,42 +298,59 @@ def main() -> None:
 
             y_train = np.concatenate([targets(p) for p in splits["train"]])
             for features in args.features:
-                x_train = np.concatenate([inputs(p, features) for p in splits["train"]])
-                model = make_probe().fit(x_train, y_train)
-                predictions = []
-                for split in ("val", "test"):
-                    for part in splits[split]:
-                        y, y_pred = with_axes(targets(part)), with_axes(model.predict(inputs(part, features)))
-                        predictions.append(
-                            prediction_frame(part.pairs["case_id"], part.cohort, split, y, y_pred, output_names)
-                        )
-                        summary, _ = compute_pathway_metrics(y, y_pred, output_names)
-                        rows.append(
-                            {
-                                "condition": condition,
-                                "normalization": normalization,
-                                "features": features,
-                                "n_features": x_train.shape[1],
-                                "n_train": len(y_train),
-                                "split": split,
-                                "cohort": part.cohort,
-                                "n": len(y),
-                                "median_spearman": summary["median_spearman"],
-                                "mean_spearman": summary["mean_spearman"],
-                                "median_r2": summary["median_r2"],
-                            }
-                        )
-                        print(
-                            f"{condition} {normalization} {features} {split} {part.cohort}: "
-                            f"median rho {summary['median_spearman']:.3f} "
-                            f"median R² {summary['median_r2']:.3f}"
-                        )
-                stem = f"{condition}__{normalization}"
-                if features != "slide-mean":
-                    stem += "__" + features.replace(".parquet", "").replace("/", "-").replace(":", "-")
-                pd.concat(predictions, ignore_index=True).to_parquet(
-                    args.output_dir / "predictions" / f"{stem}.parquet"
+                is_table = [b.startswith("table:") for b in feature_blocks(features)]
+                train_blocks = [raw_blocks(p, features) for p in splits["train"]]
+                stacked = [np.concatenate([b[i] for b in train_blocks]) for i in range(len(is_table))]
+                variants = (
+                    list(product(args.table_min_active, args.table_transforms)) if any(is_table) else [None]
                 )
+                for variant in variants:
+                    preps = [TablePrep(x, *variant) if t else None for t, x in zip(is_table, stacked)]
+
+                    def inputs(part, features: str = features, preps: list = preps) -> np.ndarray:
+                        blocks = raw_blocks(part, features)
+                        return np.concatenate([p(x) if p else x for p, x in zip(preps, blocks)], axis=1)
+
+                    prep_label = "-" if variant is None else table_prep_label(*variant)
+                    x_train = np.concatenate([inputs(p) for p in splits["train"]])
+                    model = make_probe().fit(x_train, y_train)
+                    predictions = []
+                    for split in ("val", "test"):
+                        for part in splits[split]:
+                            y, y_pred = with_axes(targets(part)), with_axes(model.predict(inputs(part)))
+                            predictions.append(
+                                prediction_frame(part.pairs["case_id"], part.cohort, split, y, y_pred, output_names)
+                            )
+                            summary, _ = compute_pathway_metrics(y, y_pred, output_names)
+                            rows.append(
+                                {
+                                    "condition": condition,
+                                    "normalization": normalization,
+                                    "features": features,
+                                    "table_prep": prep_label,
+                                    "n_features": x_train.shape[1],
+                                    "n_train": len(y_train),
+                                    "split": split,
+                                    "cohort": part.cohort,
+                                    "n": len(y),
+                                    "median_spearman": summary["median_spearman"],
+                                    "mean_spearman": summary["mean_spearman"],
+                                    "median_r2": summary["median_r2"],
+                                }
+                            )
+                            print(
+                                f"{condition} {normalization} {features} {prep_label} {split} {part.cohort}: "
+                                f"median rho {summary['median_spearman']:.3f} "
+                                f"median R² {summary['median_r2']:.3f}"
+                            )
+                    stem = f"{condition}__{normalization}"
+                    if features != "slide-mean":
+                        stem += "__" + features.replace(".parquet", "").replace("/", "-").replace(":", "-")
+                    if variant is not None and variant != (0.0, "none"):
+                        stem += "__" + prep_label
+                    pd.concat(predictions, ignore_index=True).to_parquet(
+                        args.output_dir / "predictions" / f"{stem}.parquet"
+                    )
 
     results = pd.DataFrame(rows)
     check_ranges(results)

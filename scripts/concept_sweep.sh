@@ -11,7 +11,7 @@
 # outputs/concept_sweep/<name>/. Finished steps are skipped on rerun.
 #
 # Time per job on an H100: about 3 min tile loading, 1-10 min training (K), 5 min bags, 3 min
-# probe. GPU memory: training tiles in fp16 (LUAD ~5 GB, LUAD+LUSC ~10 GB) plus the K-wide
+# probe. GPU memory: training tiles in fp16 (LUAD 5.6M tiles ~17 GB, LUAD+LUSC 11.8M ~36 GB) plus the K-wide
 # pre-activations of a batch.
 #
 # Usage (on the host, from the repo root):

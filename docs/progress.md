@@ -1424,7 +1424,7 @@ First pass of README 2f, TCGA-LUAD training only, one SAE and one PANTHER settin
 before any probe (no tuning). Ridge probe and targets as `cohort_probe`; CPTAC-LUAD is the
 external test.
 
-- **SAE:** TopK, K = 4096 latents, k = 32, on all 1.7M tiles of the 378 TCGA-LUAD training
+- **SAE:** TopK, K = 4096 latents, k = 32, on all 5.6M tiles of the 378 TCGA-LUAD training
   slides (30 epochs, `xaiwsi.concepts.train_sae`). Concept bags (`xaiwsi.concepts.bags`):
   `slides_mean` = mean activation per concept (ā), `slides_frac` = fraction of active tiles.
 - **PANTHER:** C = 16 K-means prototypes on the 64-d tile PCA, 3 MAP-EM steps per slide

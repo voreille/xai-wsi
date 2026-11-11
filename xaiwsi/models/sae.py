@@ -59,9 +59,18 @@ class TopKSAE(nn.Module):
         values, indices = pre.topk(self.k, dim=-1)
         return values, indices
 
+    def sparse_matmul(self, values: torch.Tensor, indices: torch.Tensor) -> torch.Tensor:
+        """Sum of the selected decoder rows, weighted by ``values`` (B x k each).
+
+        Scatters into dense B x K codes and uses a plain matmul: the gather-einsum form
+        dispatches its backward to a Triton kernel in recent torch, which needs the Python
+        headers at runtime (missing on the GPU hosts).
+        """
+        codes = torch.zeros(len(values), self.n_latents, device=values.device, dtype=values.dtype)
+        return codes.scatter(1, indices, values) @ self.decoder
+
     def decode_sparse(self, values: torch.Tensor, indices: torch.Tensor) -> torch.Tensor:
-        # Sum of k decoder rows per tile; cheaper than a dense K-wide matmul.
-        return torch.einsum("bk,bkd->bd", values, self.decoder[indices]) + self.pre_bias
+        return self.sparse_matmul(values, indices) + self.pre_bias
 
     @torch.no_grad()
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -90,7 +99,7 @@ class TopKSAE(nn.Module):
         if self.training and n_dead > 0 and self.aux_coef > 0:
             aux_pre = pre.masked_fill(~dead, 0.0)
             aux_values, aux_indices = aux_pre.topk(min(self.aux_k, n_dead), dim=-1)
-            aux_hat = torch.einsum("bk,bkd->bd", aux_values, self.decoder[aux_indices])
+            aux_hat = self.sparse_matmul(aux_values, aux_indices)
             aux = (residual.detach() - aux_hat).pow(2).sum(-1).mean() / residual.detach().pow(2).sum(-1).mean()
         return {
             "loss": mse + self.aux_coef * aux,

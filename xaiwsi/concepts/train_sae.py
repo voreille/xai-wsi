@@ -4,7 +4,7 @@ Uses the cohorts and split of a ``CohortPathwayDataModule`` config (``build_path
 like ``xaiwsi.data.tile_pca``: the SAE sees only tiles of training-split slides of
 ``--train-cohorts``. Reconstruction is also reported on up to ``--val-tiles-per-slide`` tiles
 of each val-split slide (no targets are used). All tiles are held on the GPU in fp16, so no
-DataLoader is involved (about 1.7M TCGA-LUAD training tiles, 5 GB).
+DataLoader is involved (5.6M TCGA-LUAD training tiles, about 17 GB; LUAD+LUSC 11.8M, about 36 GB).
 
     uv run python -m xaiwsi.concepts.train_sae --config configs/training/pathway_cohorts.yaml \\
         --train-cohorts tcga-luad --latents 4096 --k 32 \\

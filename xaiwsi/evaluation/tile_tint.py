@@ -13,6 +13,14 @@ of the training cohort, test cohorts) and every target, per probe:
 and, between probes, ``tile_agreement``: median over slides of the tile-level Spearman of the two
 maps. Medians over targets are in ``<output>.md``; per target in ``<output>.csv``.
 
+Tissue breakdown (``--tissue-probe``, default IGNITE from ``xaiwsi.tissue.apply``): per slide, each
+probe's tile scores averaged within tissue groups (``TISSUE_GROUPS``, tiles weighted by the
+probe's soft fractions, or with ``--min-tile-fraction`` only the tiles whose group fraction reaches
+it; a group with less than ``--min-group-weight`` tiles is missing on that slide). ``<output>_tissue.csv``: per cohort, probe, target and group, the Spearman across slides of
+the group score with the truth and with the slide prediction. Background and blood carry no
+Hallmark biology, so if their scores follow the prediction the slide-wide offset is technical.
+Group scores per slide: ``<output>_tissue.npz``.
+
     uv run python -m xaiwsi.evaluation.tile_tint --config configs/training/pathway_cohorts.yaml \\
         --condition tcga-luad --sae tcga-luad+tcga-lusc_k1024_top64_s0 \\
         --slide-means-dir outputs/concept_sweep/tcga-luad+tcga-lusc_k1024_top64_s0 \\
@@ -22,6 +30,7 @@ maps. Medians over targets are in ``<output>.md``; per target in ``<output>.csv`
 from __future__ import annotations
 
 import argparse
+import json
 import shlex
 import sys
 from pathlib import Path
@@ -39,6 +48,18 @@ from xaiwsi.evaluation.cohort_probe import TablePrep, markdown_table
 from xaiwsi.evaluation.learning_curve import make_probe
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
 from xaiwsi.training.run_config import data_args
+
+# Tissue groups of the IGNITE classes: the compartments of configs/tissue/compartments.yaml plus
+# tissue that should carry no tumour-RNA signal (background, alveolar lung, blood).
+TISSUE_GROUPS = {
+    "tumour": ["Tumor epithelium", "Keratinization"],
+    "stroma": ["Stroma"],
+    "immune": ["Inflammation", "Macrophages"],
+    "necrosis": ["Necrotic tissue"],
+    "background": ["Background"],
+    "alveolar": ["Alveolar tissue"],
+    "blood": ["Erythrocytes"],
+}
 
 
 def tile_matrix(model, x: np.ndarray) -> np.ndarray:
@@ -59,6 +80,14 @@ def main() -> None:
     parser.add_argument("--condition", required=True)
     parser.add_argument("--sae", required=True, help="bag folder name under <cohort dir>/concepts/ (with tiles/)")
     parser.add_argument("--slide-means-dir", type=Path, required=True)
+    parser.add_argument("--tissue-probe", default="ignite", help="applied tissue probe under <cohort dir>/tissue/")
+    parser.add_argument(
+        "--min-tile-fraction",
+        type=float,
+        default=0.0,
+        help="count a tile in a group only if its group fraction is at least this (0 = soft weights)",
+    )
+    parser.add_argument("--min-group-weight", type=float, default=20.0, help="summed tile weight for a group score")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -100,12 +129,19 @@ def main() -> None:
         "slide-mean": make_probe().fit(means[train.cohort].loc[ids].to_numpy(), y_train),
     }
     n_latents = bags[train.cohort].shape[1]
+    tissue_dirs = {name: d.parent.parent / "tissue" / args.tissue_probe for name, d in dirs.items()}
+    classes = json.loads((tissue_dirs[train.cohort] / "probe.json").read_text())["classes"]
+    group_matrix = np.zeros((len(classes), len(TISSUE_GROUPS)))
+    for g, members in enumerate(TISSUE_GROUPS.values()):
+        for member in members:
+            group_matrix[classes.index(member), g] = 1.0
+    tissue_rows, tissue_arrays = [], {}
 
     rows, agreement_rows = [], []
     for split in ("val", "test"):
         for part in splits[split]:
             store = build_embedding_store_from_dir(root_dir=dirs[part.cohort])
-            stats = {probe: {"mean": [], "var": [], "n": []} for probe in models}
+            stats = {probe: {"mean": [], "var": [], "n": [], "groups": []} for probe in models}
             agreement = []
             for slide_id in tqdm(part.pairs["slide_id"].astype(str), desc=part.cohort):
                 x_tiles = store.load(slide_id)[0]
@@ -113,7 +149,16 @@ def main() -> None:
                     "slide-mean": tile_matrix(models["slide-mean"], x_tiles),
                     "concept": tile_matrix(models["concept"], dense_codes(bag_dirs[part.cohort], slide_id, n_latents)),
                 }
+                weights = np.load(tissue_dirs[part.cohort] / "tiles" / f"{slide_id}.npy").astype(np.float64) @ group_matrix
+                if args.min_tile_fraction > 0:
+                    weights = (weights >= args.min_tile_fraction).astype(np.float64)
+                if len(weights) != len(x_tiles):
+                    raise ValueError(f"{slide_id}: {len(weights)} tissue rows for {len(x_tiles)} tiles")
+                total = weights.sum(axis=0)
                 for probe, s in scores.items():
+                    group_scores = (weights.T @ s) / np.maximum(total, 1e-9)[:, None]  # groups x targets
+                    group_scores[total < args.min_group_weight] = np.nan
+                    stats[probe]["groups"].append(group_scores)
                     stats[probe]["mean"].append(s.mean(axis=0))
                     stats[probe]["var"].append(s.var(axis=0))
                     stats[probe]["n"].append(len(s))
@@ -124,6 +169,19 @@ def main() -> None:
                 within = np.average(np.array(st["var"]), axis=0, weights=st["n"])
                 between = slide_means.var(axis=0)
                 rho = np.array([spearmanr(slide_means[:, p], y[:, p]).statistic for p in range(len(names))])
+                groups = np.array(st["groups"])  # slides x groups x targets
+                tissue_arrays[f"{part.cohort}__{probe}"] = groups
+                for g, group in enumerate(TISSUE_GROUPS):
+                    for p, name in enumerate(names):
+                        ok = np.isfinite(groups[:, g, p])
+                        if ok.sum() < 20:
+                            continue
+                        tissue_rows.append({
+                            "split": split, "cohort": part.cohort, "probe": probe, "target": name, "group": group,
+                            "n_slides": int(ok.sum()),
+                            "rho_truth": spearmanr(groups[ok, g, p], y[ok, p]).statistic,
+                            "rho_prediction": spearmanr(groups[ok, g, p], slide_means[ok, p]).statistic,
+                        })
                 for p, name in enumerate(names):
                     rows.append({"split": split, "cohort": part.cohort, "probe": probe, "target": name,
                                  "spearman": rho[p], "between_share": between[p] / (between[p] + within[p]),
@@ -154,6 +212,19 @@ def main() -> None:
         f"{markdown_table(summary)}\n"
     )
     print(markdown_table(summary))
+
+    tissue = pd.DataFrame(tissue_rows)
+    tissue.to_csv(args.output.parent / f"{args.output.name}_tissue.csv", index=False)
+    np.savez(args.output.parent / f"{args.output.name}_tissue.npz", groups=list(TISSUE_GROUPS), targets=names,
+             **tissue_arrays)
+    wide = tissue.groupby(["cohort", "probe", "group"], sort=False)[["n_slides", "rho_truth", "rho_prediction"]].median()
+    wide = wide.reset_index()
+    (args.output.parent / f"{args.output.name}_tissue.md").write_text(
+        "Probe tile scores averaged within IGNITE tissue groups, per slide; medians over targets of the Spearman "
+        "across slides with the truth and with the slide prediction. Generated by:\n\n"
+        f"```bash\n{command}\n```\n\n{markdown_table(wide)}\n"
+    )
+    print(markdown_table(wide))
 
 
 if __name__ == "__main__":

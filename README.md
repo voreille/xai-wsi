@@ -1169,6 +1169,24 @@ about 380 training cases.
   concepts (compare with the CCA axes of 2c, e.g. the mucinous axis 3).
 - **Hybrid, if both arms justify it:** SAE concepts as PANTHER components, i.e.
   concept-gated means for a few selected concepts.
+- **TODO: CCA of concept bags vs BulkFormer (2026-11-12).** Same protocol as the slide-mean
+  CCA of 2c (`cca_decomposition`, `cca_hallmarks`, `cca_axis_labels`), with the slide side
+  replaced by the clipped concept bag of the LUAD val-picked SAE (LUAD+LUSC k1024 top64).
+  Fit on TCGA-train pairs; at test only the slide side is used, so it stays deployable.
+  - Code: a `--features table:...` option for the slide side (parsing as in `cohort_probe`),
+    PCA 32 first (about 1024 dims for about 380 pairs), loadings mapped back to concepts.
+    Sparse or regularised CCA only if the PCA version is worth reading.
+  - Where the CPTAC gain sits: ridge on K CCA axes against the full bag, paired bootstrap
+    on CPTAC. If a few axes keep the gain, it lives in RNA-shared directions (a "why" for
+    the paper); if not, it is spread over many concepts (as the diffuse ridge weights
+    suggest).
+  - Canonical correlations on TCGA-val and CPTAC against the slide-mean CCA (CPTAC needs
+    CPTAC RNA: diagnostic only).
+  - Site share per axis: whether pairing with RNA (site 0.18 bal. acc.) pushes the site
+    directions of the bags (0.87) out of the shared axes, without site labels.
+  - Mucinous axis: whether an axis matches axis 3 of 2c, with which concepts, and its
+    CPTAC mucinous AUC; top concepts per axis through the concept tile panels
+    (`xaiwsi.concepts.viz`) and exact axis tile maps.
 
 **Concept ↔ outcome reading (survival).** OS is an RNA-independent label not used so far.
 TCGA-LUAD has 188 OS events (about 130 in the training split), CPTAC-LUAD 57.

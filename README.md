@@ -1187,6 +1187,17 @@ about 380 training cases.
   - Mucinous axis: whether an axis matches axis 3 of 2c, with which concepts, and its
     CPTAC mucinous AUC; top concepts per axis through the concept tile panels
     (`xaiwsi.concepts.viz`) and exact axis tile maps.
+- **Second tile encoder and a pretrained slide encoder (2026-11-12, running).** CONCH v1.5
+  tiles (512 px at 20x, `configs/tiling/tiling_512.yaml`, `wsi-embed --model-name conch-v1.5`)
+  and TITAN slide embeddings (`xaiwsi.concepts.titan`; Mass-340K pretraining, no TCGA/CPTAC,
+  no RNA), launcher `scripts/conch_titan.sh`. Reruns the core result only: slide mean, TITAN
+  ridge, LUAD+LUSC SAE bags (9 settings, then the val pick's seeds), paired bootstraps on
+  CPTAC-LUAD and CPTAC-LSCC, also against the H-optimus-1 rows. End-to-end check: our TITAN
+  embeddings of two TCGA-LUAD slides have cosine 0.996–0.999 with the released ones (0.59–0.61
+  across the two slides). Skipped on CONCH: PANTHER, the controls, the viz.
+  - Optional, not started: text names for SAE concepts. CONCH v1.5 has no released text
+    tower; CONCH v1 (gated, tile-level image–text) could score each concept's top tiles
+    against prompts, and TITAN's text encoder works at slide level only.
 
 **Concept ↔ outcome reading (survival).** OS is an RNA-independent label not used so far.
 TCGA-LUAD has 188 OS events (about 130 in the training split), CPTAC-LUAD 57.

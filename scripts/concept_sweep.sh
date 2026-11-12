@@ -7,7 +7,7 @@
 # and without clipping the bags to their training range and dropping rarely active concepts.
 # Choose settings on TCGA-val only; CPTAC is reported, never used to pick.
 #
-# Names: <cohorts>_k<latents>_top<k>_s<seed> (cohorts joined by '+'), SAE under
+# Names: [<embedding>_]<cohorts>_k<latents>_top<k>_s<seed> (cohorts joined by '+'), SAE under
 # data/processed/sae/<embedding>/<name>/, bags under <cohort dir>/concepts/<name>/, probe under
 # OUT_ROOT/<name>/. Finished steps are skipped on rerun.
 #
@@ -28,7 +28,12 @@
 set -euo pipefail
 
 CONFIG=${CONFIG:-configs/training/pathway_cohorts.yaml}
-EMBEDDING=${EMBEDDING:-h-optimus-1-fp16}
+# The tile store is the config's data.embedding. Runs on another store than H-optimus-1 get its
+# name as a prefix, so their bags (<cohort dir>/concepts/<name>/) don't collide.
+EMBEDDING=$(uv run python -c "import sys, yaml; from xaiwsi.training.run_config import data_args
+print(data_args(yaml.safe_load(open(sys.argv[1])))['embedding'])" "$CONFIG")
+if [[ $EMBEDDING == h-optimus-1-fp16 ]]; then default_prefix=""; else default_prefix="${EMBEDDING}_"; fi
+NAME_PREFIX=${NAME_PREFIX-$default_prefix}
 LATENTS=${LATENTS:-"1024 4096 16384"}
 TOPK=${TOPK:-"16 32 64"}
 TRAIN_COHORT_SETS=${TRAIN_COHORT_SETS:-"tcga-luad tcga-luad,tcga-lusc"}
@@ -46,7 +51,7 @@ mkdir -p "$LOG_DIR"
 
 run_one() {
     local gpu=$1 cohorts=$2 latents=$3 topk=$4 seed=$5
-    local name="${cohorts//,/+}_k${latents}_top${topk}_s${seed}"
+    local name="${NAME_PREFIX}${cohorts//,/+}_k${latents}_top${topk}_s${seed}"
     local sae_dir="data/processed/sae/$EMBEDDING/$name"
     local probe_dir="$OUT_ROOT/$name"
     if [[ -f "$sae_dir/sae.pt" ]]; then

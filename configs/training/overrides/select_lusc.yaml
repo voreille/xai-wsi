@@ -1,0 +1,19 @@
+# Overlay for pathway_cohorts.yaml: select and early-stop on TCGA-LUSC val instead of
+# TCGA-LUAD val, for the LSCC side of the supervised baseline (scripts/supervised_baseline.sh).
+# Use as a second --config; it replaces the whole callback list.
+trainer:
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: val/tcga-lusc/median_spearman
+        mode: max
+        save_top_k: 1
+        save_last: true
+        filename: "epoch={epoch:02d}-step={step}"
+        auto_insert_metric_name: false
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: val/tcga-lusc/median_spearman
+        mode: max
+        patience: 5
+        min_delta: 0.0

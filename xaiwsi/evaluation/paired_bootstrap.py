@@ -22,6 +22,8 @@ runs, on the same resampled cases:
         --candidates 'runs/pathways/xai-wsi/coh-1024-luad+lusc+brca-percohort-s*/test_predictions.parquet' \\
         --cohort cptac-luad --split test --output outputs/cohort_runs/bootstrap/vs_luadlusc_cptac-luad
 
+Several ``--baseline`` conditions give one block of rows each, on the same resampled cases.
+
 A condition can be prefixed with ``<label>=`` to name it in the table (e.g. two files
 with the same name from different output directories).
 
@@ -184,7 +186,11 @@ def check_same_targets(reference: pd.DataFrame, other: pd.DataFrame, path: Path)
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--baseline", required=True, help="predictions of condition A (file or quoted glob over seeds)"
+        "--baseline",
+        nargs="+",
+        required=True,
+        help="predictions of condition A (file or quoted glob over seeds); several baselines "
+        "give one block of rows each",
     )
     parser.add_argument("--candidates", nargs="+", required=True, help="conditions B (files or globs)")
     parser.add_argument("--cohort", required=True)
@@ -194,38 +200,43 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True, help="writes <output>.csv/.md")
     args = parser.parse_args()
 
-    true_a, preds_a, paths_a = load_condition(args.baseline, args.cohort, args.split)
-    names = list(true_a.columns)
-    y = true_a.to_numpy()
-    for path, pred in zip(paths_a, preds_a, strict=True):
-        check_metrics(y, pred, names, path)
-
-    rows = []
+    candidates = []
     for pattern in args.candidates:
         true_b, preds_b, paths_b = load_condition(pattern, args.cohort, args.split)
-        check_same_targets(true_a, true_b, paths_b[0])
-        for path, pred in zip(paths_b, preds_b, strict=True):
+        candidates.append((pattern, true_b, preds_b, paths_b))
+
+    rows = []
+    for baseline in args.baseline:
+        true_a, preds_a, paths_a = load_condition(baseline, args.cohort, args.split)
+        names = list(true_a.columns)
+        y = true_a.to_numpy()
+        for path, pred in zip(paths_a, preds_a, strict=True):
             check_metrics(y, pred, names, path)
 
-        point_a, point_b, deltas = paired_bootstrap(y, preds_a, preds_b, n_boot=args.n_boot, seed=args.seed)
-        for k, metric in enumerate(METRICS):
-            rows.append(
-                {
-                    "baseline": label(args.baseline),
-                    "candidate": label(pattern),
-                    "runs": f"{len(paths_a)}/{len(paths_b)}",
-                    "cohort": args.cohort,
-                    "split": args.split,
-                    "n": len(y),
-                    "metric": metric,
-                    "baseline_value": point_a[k],
-                    "candidate_value": point_b[k],
-                    "delta": point_b[k] - point_a[k],
-                    "ci_low": float(np.percentile(deltas[:, k], 2.5)),
-                    "ci_high": float(np.percentile(deltas[:, k], 97.5)),
-                    "p_delta_le_0": float((deltas[:, k] <= 0).mean()),
-                }
-            )
+        for pattern, true_b, preds_b, paths_b in candidates:
+            check_same_targets(true_a, true_b, paths_b[0])
+            for path, pred in zip(paths_b, preds_b, strict=True):
+                check_metrics(y, pred, names, path)
+
+            point_a, point_b, deltas = paired_bootstrap(y, preds_a, preds_b, n_boot=args.n_boot, seed=args.seed)
+            for k, metric in enumerate(METRICS):
+                rows.append(
+                    {
+                        "baseline": label(baseline),
+                        "candidate": label(pattern),
+                        "runs": f"{len(paths_a)}/{len(paths_b)}",
+                        "cohort": args.cohort,
+                        "split": args.split,
+                        "n": len(y),
+                        "metric": metric,
+                        "baseline_value": point_a[k],
+                        "candidate_value": point_b[k],
+                        "delta": point_b[k] - point_a[k],
+                        "ci_low": float(np.percentile(deltas[:, k], 2.5)),
+                        "ci_high": float(np.percentile(deltas[:, k], 97.5)),
+                        "p_delta_le_0": float((deltas[:, k] <= 0).mean()),
+                    }
+                )
 
     results = pd.DataFrame(rows)
     spearman = results["metric"] == "median_spearman"

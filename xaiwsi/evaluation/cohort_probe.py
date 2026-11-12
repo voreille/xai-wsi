@@ -49,7 +49,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import yaml
-from scipy.stats import spearmanr
+from scipy.stats import rankdata, spearmanr
+from sklearn.linear_model import LassoCV, MultiTaskLassoCV
+from sklearn.multioutput import MultiOutputRegressor
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
 from xaiwsi.evaluation.geneset_vs_hallmarks import add_axis_scores
@@ -70,6 +74,37 @@ def feature_blocks(features: str) -> list[str]:
     return BLOCK_SEPARATOR.split(features)
 
 
+def target_relevance(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """Per column: max over targets of |Spearman| on the given rows (0 for constant columns)."""
+    rx, ry = rankdata(x, axis=0), rankdata(y, axis=0)
+    rx, ry = rx - rx.mean(axis=0), ry - ry.mean(axis=0)
+    norms = np.linalg.norm(rx, axis=0)[:, None] * np.linalg.norm(ry, axis=0)[None, :]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rho = (rx.T @ ry) / norms
+    return np.nan_to_num(np.abs(rho), nan=0.0).max(axis=1)
+
+
+def probe_model(kind: str):
+    """``ridge`` (the default probe), ``lasso`` (one LassoCV per target) or ``mtlasso``
+    (MultiTaskLassoCV: one concept set shared by all targets); all on standardised inputs."""
+    if kind == "ridge":
+        return make_probe()
+    if kind == "lasso":
+        lasso = LassoCV(cv=5, n_alphas=20, max_iter=5000)
+        return make_pipeline(StandardScaler(), MultiOutputRegressor(lasso, n_jobs=-1))
+    if kind == "mtlasso":
+        return make_pipeline(StandardScaler(), MultiTaskLassoCV(cv=5, n_alphas=20, max_iter=5000, n_jobs=-1))
+    raise ValueError(f"Unknown probe {kind!r}")
+
+
+def linear_coef(model) -> np.ndarray:
+    """Targets x features coefficients of a probe_model pipeline, on standardised inputs."""
+    last = model[-1]
+    if isinstance(last, MultiOutputRegressor):
+        return np.stack([e.coef_ for e in last.estimators_])
+    return np.atleast_2d(last.coef_)
+
+
 class TablePrep:
     """Preprocessing of one table block, fitted on its training rows.
 
@@ -80,12 +115,20 @@ class TablePrep:
     ``transform="whiten"`` instead projects on the training principal components (all with
     non-negligible variance) scaled to unit variance: a control for how much of a table's
     effect comes from the probe's per-column standardisation alone.
+    ``top > 0`` then keeps only the ``top`` columns most associated with the training targets
+    (``target_relevance``, max |Spearman| over targets), one column set shared by all targets.
     """
 
-    def __init__(self, x_train: np.ndarray, min_active: float, transform: str) -> None:
+    def __init__(
+        self, x_train: np.ndarray, min_active: float, transform: str, top: int = 0, y_train: np.ndarray | None = None
+    ) -> None:
         self.keep = (x_train > 0).mean(axis=0) >= min_active
         if not self.keep.any():
             raise SystemExit(f"min_active {min_active} drops every column")
+        if top and top < self.keep.sum():
+            relevance = np.where(self.keep, target_relevance(x_train, y_train), -1.0)
+            self.keep = np.zeros_like(self.keep)
+            self.keep[np.argsort(-relevance, kind="stable")[:top]] = True
         self.transform = transform
         kept = x_train[:, self.keep]
         self.low, self.high = kept.min(axis=0), kept.max(axis=0)
@@ -104,8 +147,62 @@ class TablePrep:
         return x
 
 
-def table_prep_label(min_active: float, transform: str) -> str:
-    return f"min{min_active:g}_{transform}"
+def table_prep_label(min_active: float, transform: str, top: int = 0) -> str:
+    return f"min{min_active:g}_{transform}" + (f"_top{top}" if top else "")
+
+
+def shift_exposure(model, x_train: np.ndarray, y_train: np.ndarray, x_test: np.ndarray, y_test: np.ndarray,
+                   low_fraction: float = 0.75) -> tuple[dict, pd.DataFrame]:
+    """How the probe's prediction moves between the training and a test cohort, per input column.
+
+    With standardised inputs z and coefficients W, the predicted mean shift is
+    ``Δŷ = W Δz`` (``Δz`` = test mean minus training mean, in training standard deviations), a
+    sum of one contribution per column. Summary: ``|Δŷ|`` against the true target shift ``Δy``
+    (same z units), and the part of ``Δŷ`` from the ``low_fraction`` of columns least
+    associated with the training targets. A per-target Spearman ignores such offsets, so the
+    variance terms matter for it: ``var_share_low_*`` is the median over targets of the share of
+    the prediction's case-to-case variance carried by those low-relevance columns (train and
+    test), and ``var_gain_low`` the median ratio of their prediction variance on test over train.
+    Diagnostic only: it reads the test cohort's targets.
+    """
+    scaler = model[0]
+    coef = linear_coef(model)
+    dz = (x_test.mean(axis=0) - scaler.mean_) / scaler.scale_
+    contributions = coef * dz[None, :]
+    relevance = target_relevance(x_train, y_train)
+    low = np.zeros(len(relevance), dtype=bool)
+    low[np.argsort(relevance, kind="stable")[: int(low_fraction * len(relevance))]] = True
+    dy_hat, dy_hat_low = contributions.sum(axis=1), contributions[:, low].sum(axis=1)
+    dy = y_test.mean(axis=0) - y_train.mean(axis=0)
+    exposure = np.linalg.norm(contributions, axis=0)
+
+    def low_variance(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        z = scaler.transform(x)
+        return (z[:, low] @ coef[:, low].T).var(axis=0), (z @ coef.T).var(axis=0)
+
+    low_train, total_train = low_variance(x_train)
+    low_test, total_test = low_variance(x_test)
+
+    def cos(a, b):
+        return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))
+
+    summary = {
+        "n_columns": len(dz),
+        "n_nonzero_coef": int((np.abs(coef).max(axis=0) > 0).sum()),
+        "true_shift": float(np.linalg.norm(dy)),
+        "pred_shift": float(np.linalg.norm(dy_hat)),
+        "cos_pred_true": cos(dy_hat, dy),
+        "pred_shift_low": float(np.linalg.norm(dy_hat_low)),
+        "cos_low_true": cos(dy_hat_low, dy),
+        "exposure_share_low": float(exposure[low].sum() / (exposure.sum() + 1e-12)),
+        "var_share_low_train": float(np.median(low_train / (total_train + 1e-12))),
+        "var_share_low_test": float(np.median(low_test / (total_test + 1e-12))),
+        "var_gain_low": float(np.median(low_test / (low_train + 1e-12))),
+    }
+    per_column = pd.DataFrame(
+        {"relevance": relevance, "coef_norm": np.linalg.norm(coef, axis=0), "dz": dz, "exposure": exposure}
+    )
+    return summary, per_column
 
 
 def check_ranges(results: pd.DataFrame) -> None:
@@ -197,12 +294,29 @@ def main() -> None:
         "(one probe per value)",
     )
     parser.add_argument(
+        "--table-select-top",
+        type=int,
+        nargs="+",
+        default=[0],
+        help="for table blocks: keep the N columns most associated with the training targets (0 = all; "
+        "one probe per value)",
+    )
+    parser.add_argument("--probes", nargs="+", default=["ridge"], choices=["ridge", "lasso", "mtlasso"])
+    parser.add_argument(
+        "--shift-exposure",
+        action="store_true",
+        help="write shift_exposure.csv/.md (diagnostic: reads test targets) and per-column tables",
+    )
+    parser.add_argument(
         "--composition-spec", type=Path, default=Path("configs/tissue/composition_features.yaml")
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "predictions").mkdir(exist_ok=True)
+    if args.shift_exposure:
+        (args.output_dir / "shift_exposure").mkdir(exist_ok=True)
+    exposures: list[dict] = []
 
     data = data_args(yaml.safe_load(args.config.read_text()))
     if "train_cohorts" not in data:
@@ -315,10 +429,12 @@ def main() -> None:
                 train_blocks = [raw_blocks(p, features) for p in splits["train"]]
                 stacked = [np.concatenate([b[i] for b in train_blocks]) for i in range(len(is_table))]
                 variants = (
-                    list(product(args.table_min_active, args.table_transforms)) if any(is_table) else [None]
+                    list(product(args.table_min_active, args.table_transforms, args.table_select_top))
+                    if any(is_table)
+                    else [None]
                 )
-                for variant in variants:
-                    preps = [TablePrep(x, *variant) if t else None for t, x in zip(is_table, stacked)]
+                for variant, probe in product(variants, args.probes):
+                    preps = [TablePrep(x, *variant, y_train=y_train) if t else None for t, x in zip(is_table, stacked)]
 
                     def inputs(part, features: str = features, preps: list = preps) -> np.ndarray:
                         blocks = raw_blocks(part, features)
@@ -326,7 +442,7 @@ def main() -> None:
 
                     prep_label = "-" if variant is None else table_prep_label(*variant)
                     x_train = np.concatenate([inputs(p) for p in splits["train"]])
-                    model = make_probe().fit(x_train, y_train)
+                    model = probe_model(probe).fit(x_train, y_train)
                     predictions = []
                     for split in ("val", "test"):
                         for part in splits[split]:
@@ -335,12 +451,23 @@ def main() -> None:
                                 prediction_frame(part.pairs["case_id"], part.cohort, split, y, y_pred, output_names)
                             )
                             summary, _ = compute_pathway_metrics(y, y_pred, output_names)
+                            if args.shift_exposure and split == "test":
+                                x_test = inputs(part)
+                                exposure, per_column = shift_exposure(model, x_train, y_train, x_test, targets(part))
+                                exposures.append(
+                                    {"features": features, "table_prep": prep_label, "probe": probe,
+                                     "cohort": part.cohort, **exposure}
+                                )
+                                exposure_stem = f"{features}__{prep_label}__{probe}__{part.cohort}"
+                                exposure_stem = exposure_stem.replace(".parquet", "").replace("/", "-").replace(":", "-")
+                                per_column.to_csv(args.output_dir / "shift_exposure" / f"{exposure_stem}.csv", index=False)
                             rows.append(
                                 {
                                     "condition": condition,
                                     "normalization": normalization,
                                     "features": features,
                                     "table_prep": prep_label,
+                                    "probe": probe,
                                     "n_features": x_train.shape[1],
                                     "n_train": len(y_train),
                                     "split": split,
@@ -352,15 +479,17 @@ def main() -> None:
                                 }
                             )
                             print(
-                                f"{condition} {normalization} {features} {prep_label} {split} {part.cohort}: "
+                                f"{condition} {normalization} {features} {prep_label} {probe} {split} {part.cohort}: "
                                 f"median rho {summary['median_spearman']:.3f} "
                                 f"median R² {summary['median_r2']:.3f}"
                             )
                     stem = f"{condition}__{normalization}"
                     if features != "slide-mean":
                         stem += "__" + features.replace(".parquet", "").replace("/", "-").replace(":", "-")
-                    if variant is not None and variant != (0.0, "none"):
+                    if variant is not None and variant != (0.0, "none", 0):
                         stem += "__" + prep_label
+                    if probe != "ridge":
+                        stem += "__" + probe
                     pd.concat(predictions, ignore_index=True).to_parquet(
                         args.output_dir / "predictions" / f"{stem}.parquet"
                     )
@@ -372,10 +501,21 @@ def main() -> None:
     command = "uv run python -m xaiwsi.evaluation.cohort_probe " + shlex.join(sys.argv[1:])
     table = markdown_table(results)
     (args.output_dir / "probe_metrics.md").write_text(
-        f"Ridge probe on slide features ({embedding}; see the features column). Generated by:\n\n"
+        f"Linear probe on slide features ({embedding}; see the features and probe columns). Generated by:\n\n"
         f"```bash\n{command}\n```\n\n{table}\n"
     )
     print(table)
+    if exposures:
+        frame = pd.DataFrame(exposures)
+        frame.to_csv(args.output_dir / "shift_exposure.csv", index=False)
+        (args.output_dir / "shift_exposure.md").write_text(
+            "Shift exposure of the probe (diagnostic, reads test targets): true and predicted mean target "
+            "shift between training and test cohort (norm over targets, target z units), their cosine, the "
+            "part of the predicted shift from the 75% of columns least associated with the training targets, "
+            "that part's share of the per-column exposure, and its share and gain of the prediction's "
+            f"case-to-case variance (train, test). Generated by:\n\n```bash\n{command}\n```\n\n"
+            f"{markdown_table(frame)}\n"
+        )
     if correlations:
         write_correlations(pd.DataFrame(correlations), args.output_dir, command)
     print(f"Output: {args.output_dir}")

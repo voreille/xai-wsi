@@ -39,6 +39,8 @@ def main() -> None:
         metrics = pd.read_csv(path)
         if "table_prep" not in metrics:  # written before cohort_probe had table preprocessing
             metrics["table_prep"] = "min0_none"
+        if "probe" not in metrics:  # written before cohort_probe had --probes
+            metrics["probe"] = "ridge"
         check_ranges(metrics)
         train = json.loads((args.sae_root / name / "train.json").read_text())
         settings = train["settings"]
@@ -58,6 +60,7 @@ def main() -> None:
                     "val_fvu": train["final"]["val_fvu"],
                     "bag": row["features"].rsplit("slides_", 1)[-1].removesuffix(".parquet"),
                     "prep": row["table_prep"],
+                    "probe": row["probe"],
                     "key": key,
                     **value,
                 }
@@ -75,12 +78,12 @@ def main() -> None:
             long = long[long[column].isin(values)]
     if long.empty:
         raise SystemExit("No rows left after --bags/--preps/--seeds")
-    index = ["sae", "train_cohorts", "latents", "k", "seed", "val_fvu", "bag", "prep"]
+    index = ["sae", "train_cohorts", "latents", "k", "seed", "val_fvu", "bag", "prep", "probe"]
     wide = long.pivot_table(index=index, columns="key", values=["median_spearman", "median_r2"])
     wide.columns = [f"{metric} {key}" for metric, key in wide.columns]
     wide = wide.reset_index()
     first = base.drop_duplicates("key").set_index("key")
-    baseline_row = {c: "" for c in index} | {"sae": "slide mean", "bag": "-", "prep": "-"}
+    baseline_row = {c: "" for c in index} | {"sae": "slide mean", "bag": "-", "prep": "-", "probe": "ridge"}
     for metric in ("median_spearman", "median_r2"):
         for key in first.index:
             baseline_row[f"{metric} {key}"] = first.loc[key, metric]

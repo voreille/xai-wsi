@@ -10,11 +10,21 @@
    the WSIs.
 3. Slide maps: tile activation of each pathway's top concept on the slides of each cohort with
    the highest slide activation ā.
+4. ``--compare-slides N``: the concept-bag probe against the slide-mean probe at tile level. Both
+   ridge probes are linear in tile features, so each gives a tile score map whose average is the
+   slide prediction (bag: w·a over the tile's concept code; slide mean: w·x over its embedding).
+   On N evaluation slides per cohort (spread over the first pathway's true score), both maps
+   side by side and their tile-level Spearman (``compare.csv``, ``compare/<pathway>.jpg``).
+
+``--gene-sets`` (Tavernari ``.json``) replaces the Hallmarks; its solid − lepidic axes
+(``L2S_*``) are then valid ``--pathways`` too.
 
     uv run python -m xaiwsi.concepts.viz --config configs/training/pathway_cohorts.yaml \\
         --condition tcga-luad --sae tcga-luad+tcga-lusc_k1024_top64_s0 \\
         --pathways HALLMARK_E2F_TARGETS HALLMARK_INTERFERON_GAMMA_RESPONSE \\
-        --site-concepts 4 --output-dir outputs/concept_viz/luad_valpick
+        --site-concepts 4 --compare-slides 4 \\
+        --slide-means-dir outputs/concept_sweep/tcga-luad+tcga-lusc_k1024_top64_s0 \\
+        --output-dir outputs/concept_viz/luad_valpick
 
 Writes ``concepts.csv`` (the ranking), ``tiles/<group>.jpg`` (one row per concept and cohort)
 and ``maps/<pathway>.jpg``. Reading aid only: rankings come from training data, and test
@@ -37,8 +47,10 @@ from tqdm import tqdm
 
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
 from xaiwsi.evaluation.cohort_probe import TablePrep
+from xaiwsi.evaluation.geneset_vs_hallmarks import add_axis_scores
 from xaiwsi.evaluation.learning_curve import make_probe
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
+from xaiwsi.rna.pathways.tavernari import load_tavernari_signatures
 from xaiwsi.training.run_config import data_args
 from xaiwsi.visualization.pathways import (
     load_thumbnail,
@@ -104,6 +116,21 @@ def tile_panel(rows: list[tuple[str, list[Image.Image]]], size: int, columns: in
     return canvas
 
 
+def dense_codes(bag_dir: Path, slide_id: str, n_latents: int) -> np.ndarray:
+    """Tiles x concepts activations of a slide from its stored top-k codes."""
+    codes = np.load(bag_dir / "tiles" / f"{slide_id}.npz")
+    indices, values = codes["indices"].astype(np.int64), codes["values"].astype(np.float32)
+    dense = np.zeros((len(indices), n_latents), dtype=np.float32)
+    np.put_along_axis(dense, indices, values, axis=1)
+    return dense
+
+
+def tile_scores(model, x: np.ndarray, target: int) -> np.ndarray:
+    """Per-tile output of a fitted StandardScaler + ridge pipeline for one target."""
+    scaler, ridge = model[0], model[-1]
+    return ((x - scaler.mean_) / scaler.scale_) @ ridge.coef_[target] + ridge.intercept_[target]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, required=True)
@@ -116,6 +143,11 @@ def main() -> None:
     parser.add_argument("--tile-size", type=int, default=112)
     parser.add_argument("--map-slides", type=int, default=2, help="slides per cohort in the maps")
     parser.add_argument("--map-size", type=int, default=768)
+    parser.add_argument("--gene-sets", type=Path, default=None, help="Tavernari .json (default: Hallmarks)")
+    parser.add_argument("--compare-slides", type=int, default=0, help="slides per cohort for the slide-mean comparison")
+    parser.add_argument(
+        "--slide-means-dir", type=Path, default=None, help="dir with cohort_probe slide_means_<cohort>_<embedding>.parquet"
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     (args.output_dir / "tiles").mkdir(parents=True, exist_ok=True)
@@ -126,8 +158,13 @@ def main() -> None:
     train_specs = [CohortSpec(**s) for s in data["train_cohorts"]]
     test_specs = [CohortSpec(**s) for s in data["test_cohorts"]]
     train_used, test_used = select_cohorts(train_specs, test_specs, [args.condition])
-    gene_sets = load_hallmarks(data["hallmark_gmt"])
-    names = list(gene_sets)
+    gene_sets = load_hallmarks(data["hallmark_gmt"]) if args.gene_sets is None else load_tavernari_signatures(args.gene_sets)
+    set_names = list(gene_sets)
+
+    def targets(part) -> pd.DataFrame:
+        scores = part.scores.loc[part.pairs["sample_id"].astype(str), set_names].reset_index(drop=True)
+        return add_axis_scores(scores) if args.gene_sets is not None else scores
+
     splits = build_pathway_splits(
         [c.resolve(processed_root, embedding) for c in train_used],
         [c.resolve(processed_root, embedding) for c in test_used],
@@ -152,7 +189,9 @@ def main() -> None:
     train = splits["train"][0]
     slide_ids = train.pairs["slide_id"].astype(str)
     x_raw = cohorts[train.cohort]["bags"].loc[slide_ids].to_numpy()
-    y = train.scores.loc[train.pairs["sample_id"].astype(str), names].to_numpy()
+    y_frame = targets(train)
+    names = list(y_frame.columns)
+    y = y_frame.to_numpy()
     prep = TablePrep(x_raw, 0.0, "clip")
     model = make_probe().fit(prep(x_raw), y)
     coef = model[-1].coef_  # targets x concepts, standardised inputs
@@ -219,7 +258,72 @@ def main() -> None:
             canvas.paste(p, (0, y0))
             y0 += p.height
         canvas.save(args.output_dir / "maps" / f"{pathway.removeprefix('HALLMARK_')}.jpg", quality=85)
+    if args.compare_slides:
+        compare(args, splits, cohorts, train, model, prep, x_raw.shape[1], y, names, targets)
     print(f"Output: {args.output_dir}")
+
+
+def compare(args, splits, cohorts, train, bag_model, prep, n_latents, y, names, targets) -> None:
+    """Section 4: tile maps of the concept-bag probe against the slide-mean probe."""
+    from wsitools.storage.factory import build_embedding_store_from_dir
+
+    embedding = cohorts[train.cohort]["embedding_dir"].name
+    means = {}
+    for name in cohorts:
+        frame = pd.read_parquet(args.slide_means_dir / f"slide_means_{name}_{embedding}.parquet")
+        frame.index = frame.index.astype(str)
+        means[name] = frame
+    train_ids = train.pairs["slide_id"].astype(str)
+    mean_model = make_probe().fit(means[train.cohort].loc[train_ids].to_numpy(), y)
+    first = names.index(args.pathways[0])
+    out_dir = args.output_dir / "compare"
+    out_dir.mkdir(exist_ok=True)
+    records, panels = [], {pathway: [] for pathway in args.pathways}
+    for part in splits["val"] + splits["test"]:
+        c = cohorts[part.cohort]
+        truth = targets(part)[names[first]].to_numpy()
+        picks = np.argsort(truth)[np.linspace(0, len(truth) - 1, args.compare_slides).round().astype(int)]
+        store = build_embedding_store_from_dir(root_dir=c["embedding_dir"])
+        for i in picks[::-1]:
+            slide_id = str(part.pairs["slide_id"].iloc[i])
+            x_tiles, coords, attrs = store.load(slide_id)
+            a_tiles = dense_codes(c["bag_dir"], slide_id, n_latents)
+            thumbnail = load_thumbnail(c["slides_root"] / str(attrs["relative_wsi_path"]), args.map_size // 2)
+            true_row = targets(part).iloc[i]
+            for pathway in args.pathways:
+                p = names.index(pathway)
+                s_mean = tile_scores(mean_model, x_tiles, p)
+                s_bag = tile_scores(bag_model, a_tiles, p)
+                rho = spearmanr(s_mean, s_bag).statistic
+                pred_bag = bag_model.predict(prep(c["bags"].loc[[slide_id]].to_numpy()))[0, p]
+                records.append({"pathway": pathway, "cohort": part.cohort, "slide_id": slide_id,
+                                "true": true_row[pathway], "pred_mean": s_mean.mean(), "pred_bag": pred_bag,
+                                "tile_spearman": rho, "n_tiles": len(s_mean)})
+                vmax = float(np.percentile(np.abs(np.concatenate([s_mean, s_bag])), 99))
+                images = [thumbnail]
+                for scores in (s_mean, s_bag):
+                    heat = rasterize_tile_values_to_thumbnail(coords, scores, attrs, thumbnail)
+                    images.append(render_heatmap_overlay(thumbnail, heat, kind="score", alpha=0.6, vmax=vmax).convert("RGB"))
+                row = Image.new("RGB", (sum(im.width for im in images), thumbnail.height + 20), "white")
+                for j, im in enumerate(images):
+                    row.paste(im, (j * thumbnail.width, 20))
+                ImageDraw.Draw(row).text(
+                    (4, 4),
+                    f"{part.cohort} {slide_id[:23]}  true {true_row[pathway]:+.2f}  slide-mean probe "
+                    f"{s_mean.mean():+.2f} | concept probe {pred_bag:+.2f}  tile rho {rho:+.2f}  (+-{vmax:.2f})",
+                    fill="black",
+                )
+                panels[pathway].append(row)
+    for pathway, rows in panels.items():
+        canvas = Image.new("RGB", (max(r.width for r in rows), sum(r.height for r in rows)), "white")
+        y0 = 0
+        for r in rows:
+            canvas.paste(r, (0, y0))
+            y0 += r.height
+        canvas.save(out_dir / f"{pathway.removeprefix('HALLMARK_')}.jpg", quality=85)
+    frame = pd.DataFrame(records)
+    frame.to_csv(args.output_dir / "compare.csv", index=False)
+    print(frame.round(3).to_string(index=False))
 
 
 if __name__ == "__main__":

@@ -9,7 +9,10 @@
    component falls back to its prototype.
 3. Features per component: mixture weight ``pi``, mean ``mu``, diagonal variance ``sigma`` and
    the mass-weighted mean ``pimu`` = pi_c * mu_c (sum over c is the slide's mixture mean, so a
-   linear head on ``pimu`` contains the slide mean in the projected space).
+   linear head on ``pimu`` contains the slide mean in the projected space). ``--save-tiles`` also
+   writes ``tiles/<slide_id>.npz`` per slide: final responsibilities ``resp`` (N x C) and the squared
+   distance to each prototype per dimension in global-variance units ``dist`` (N x C), read by
+   ``xaiwsi.concepts.panther_viz``.
 
     uv run python -m xaiwsi.concepts.panther --config configs/training/pathway_cohorts.yaml \\
         --train-cohorts tcga-luad --components 16 \\
@@ -73,6 +76,17 @@ def kmeans(x: torch.Tensor, k: int, iters: int, seed: int) -> torch.Tensor:
     return centers
 
 
+def responsibilities(x: torch.Tensor, pi: torch.Tensor, mu: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+    """E step: posterior of each component per tile, from log N(x | mu_c, diag sigma_c) + log pi_c.
+
+    Expanded square, so no N x C x d tensor is formed.
+    """
+    inv = 1.0 / sigma
+    sq = (x**2) @ inv.T - 2 * x @ (mu * inv).T + (mu**2 * inv).sum(-1)
+    log_p = -0.5 * (sq + torch.log(sigma).sum(-1) + x.shape[1] * np.log(2 * np.pi)) + torch.log(pi)
+    return torch.softmax(log_p, dim=1)
+
+
 def slide_gmm(
     x: torch.Tensor, prototypes: torch.Tensor, variance: torch.Tensor, tau: float, steps: int
 ) -> dict[str, torch.Tensor]:
@@ -81,12 +95,7 @@ def slide_gmm(
     pi = torch.full((c,), 1.0 / c, device=x.device)
     mu, sigma = prototypes.clone(), variance.expand(c, -1).clone()
     for _ in range(steps):
-        # E step: log N(x | mu_c, diag sigma_c) + log pi_c.
-        # Expanded square, so no N x C x d tensor is formed.
-        inv = 1.0 / sigma
-        sq = (x**2) @ inv.T - 2 * x @ (mu * inv).T + (mu**2 * inv).sum(-1)
-        log_p = -0.5 * (sq + torch.log(sigma).sum(-1) + x.shape[1] * np.log(2 * np.pi)) + torch.log(pi)
-        resp = torch.softmax(log_p, dim=1)  # N x C
+        resp = responsibilities(x, pi, mu, sigma)  # N x C
         # M step with the prototype prior (tau pseudo-tiles at mu0 with the global variance).
         mass = resp.sum(0)  # C
         mu = (resp.T @ x + tau * prototypes) / (mass + tau).unsqueeze(1)
@@ -94,7 +103,7 @@ def slide_gmm(
         sigma = (second - 2 * mu * (resp.T @ x) + mass.unsqueeze(1) * mu**2 + tau * variance) / (mass + tau).unsqueeze(1)
         sigma = sigma.clamp(min=1e-4 * variance.min().item())
         pi = (mass + 1e-3) / (mass.sum() + 1e-3 * c)
-    return {"pi": pi, "mu": mu, "sigma": sigma, "pimu": pi.unsqueeze(1) * mu}
+    return {"resp": responsibilities(x, pi, mu, sigma), "pi": pi, "mu": mu, "sigma": sigma, "pimu": pi.unsqueeze(1) * mu}
 
 
 def main() -> None:
@@ -109,6 +118,9 @@ def main() -> None:
     parser.add_argument("--em-steps", type=int, default=3)
     parser.add_argument("--tau", type=float, default=1.0, help="prior strength in tiles")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--save-tiles", action="store_true", help="also write per-tile responsibilities and prototype distances (for viz)"
+    )
     parser.add_argument("--output-name", required=True)
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -158,6 +170,8 @@ def main() -> None:
     for cohort, embedding_dir in embedding_dirs(args.config, args.cohorts).items():
         out_dir = embedding_dir.parent.parent / "panther" / args.output_name
         out_dir.mkdir(parents=True, exist_ok=True)
+        if args.save_tiles:
+            (out_dir / "tiles").mkdir(exist_ok=True)
         store = build_embedding_store_from_dir(root_dir=embedding_dir)
         rows: dict[str, dict[str, np.ndarray]] = {kind: {} for kind in columns}
         for slide_id in tqdm(sorted(store.slide_ids()), desc=cohort):
@@ -165,7 +179,16 @@ def main() -> None:
             if len(tiles_slide) == 0:
                 continue
             with torch.no_grad():
-                fit = slide_gmm(project(tiles_slide), prototypes, variance, args.tau, args.em_steps)
+                x_slide = project(tiles_slide)
+                fit = slide_gmm(x_slide, prototypes, variance, args.tau, args.em_steps)
+                if args.save_tiles:
+                    # Squared distance to each prototype in global-variance units, per dimension.
+                    dist = (torch.cdist(x_slide / variance.sqrt(), prototypes / variance.sqrt()) ** 2) / d
+                    np.savez_compressed(
+                        out_dir / "tiles" / f"{slide_id}.npz",
+                        resp=fit["resp"].cpu().numpy().astype(np.float16),
+                        dist=dist.cpu().numpy().astype(np.float16),
+                    )
             for kind in columns:
                 rows[kind][slide_id] = fit[kind].flatten().cpu().numpy()
         for kind, table in rows.items():

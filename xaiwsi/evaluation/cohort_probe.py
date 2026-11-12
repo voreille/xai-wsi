@@ -90,10 +90,10 @@ def probe_model(kind: str):
     if kind == "ridge":
         return make_probe()
     if kind == "lasso":
-        lasso = LassoCV(cv=5, n_alphas=20, max_iter=5000)
+        lasso = LassoCV(cv=5, alphas=20, max_iter=5000)
         return make_pipeline(StandardScaler(), MultiOutputRegressor(lasso, n_jobs=-1))
     if kind == "mtlasso":
-        return make_pipeline(StandardScaler(), MultiTaskLassoCV(cv=5, n_alphas=20, max_iter=5000, n_jobs=-1))
+        return make_pipeline(StandardScaler(), MultiTaskLassoCV(cv=5, alphas=20, max_iter=5000, n_jobs=-1))
     raise ValueError(f"Unknown probe {kind!r}")
 
 

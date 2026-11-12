@@ -26,7 +26,7 @@ import pandas as pd
 import yaml
 
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
-from xaiwsi.evaluation.cohort_probe import markdown_table
+from xaiwsi.evaluation.cohort_probe import feature_blocks, markdown_table
 from xaiwsi.evaluation.learning_curve import slide_means
 from xaiwsi.evaluation.shared_structure import site_probe, tcga_site
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
@@ -67,7 +67,7 @@ def main() -> None:
     rows = []
     for features in args.features:
         blocks = []
-        for block in features.split("+"):
+        for block in feature_blocks(features):
             if block == "slide-mean":
                 table = slide_means(parts[0].store, sorted(set(slide_ids)), cache)
             elif block.startswith("table:"):

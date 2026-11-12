@@ -77,6 +77,9 @@ class TablePrep:
     with ``transform="clip"`` clips each column to its training range. Both guard against
     columns that are near-constant on the training cohort: the probe's StandardScaler
     divides by their tiny spread, so values seen only in a test cohort blow up.
+    ``transform="whiten"`` instead projects on the training principal components (all with
+    non-negligible variance) scaled to unit variance: a control for how much of a table's
+    effect comes from the probe's per-column standardisation alone.
     """
 
     def __init__(self, x_train: np.ndarray, min_active: float, transform: str) -> None:
@@ -86,10 +89,19 @@ class TablePrep:
         self.transform = transform
         kept = x_train[:, self.keep]
         self.low, self.high = kept.min(axis=0), kept.max(axis=0)
+        if transform == "whiten":
+            self.center = kept.mean(axis=0)
+            _, singular, vt = np.linalg.svd(kept - self.center, full_matrices=False)
+            rank = singular > singular[0] * 1e-6
+            self.components = vt[rank].T / (singular[rank] / np.sqrt(len(kept)))
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
         x = x[:, self.keep]
-        return np.clip(x, self.low, self.high) if self.transform == "clip" else x
+        if self.transform == "clip":
+            return np.clip(x, self.low, self.high)
+        if self.transform == "whiten":
+            return (x - self.center) @ self.components
+        return x
 
 
 def table_prep_label(min_active: float, transform: str) -> str:
@@ -180,8 +192,9 @@ def main() -> None:
         "--table-transforms",
         nargs="+",
         default=["none"],
-        choices=["none", "clip"],
-        help="for table blocks: clip to the training range or not (one probe per value)",
+        choices=["none", "clip", "whiten"],
+        help="for table blocks: none, clip to the training range, or PCA-whiten on the training slides "
+        "(one probe per value)",
     )
     parser.add_argument(
         "--composition-spec", type=Path, default=Path("configs/tissue/composition_features.yaml")

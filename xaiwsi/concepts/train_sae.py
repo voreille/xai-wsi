@@ -74,7 +74,7 @@ def main() -> None:
     parser.add_argument("--aux-k", type=int, default=512)
     parser.add_argument("--aux-coef", type=float, default=1 / 32)
     parser.add_argument("--dead-after", type=int, default=2_000_000, help="tiles without activation")
-    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--epochs", type=int, default=20, help="0 saves the untrained SAE (control)")
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--tiles-per-slide", type=int, default=None, help="default: all tiles")
@@ -118,7 +118,7 @@ def main() -> None:
     total = args.epochs * steps_per_epoch
     # Constant learning rate, linear decay to 0 over the last 20% of steps.
     scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lambda step: min(1.0, (total - step) / (0.2 * total))
+        optimizer, lambda step: min(1.0, (total - step) / max(0.2 * total, 1))
     )
 
     history = []
@@ -154,6 +154,11 @@ def main() -> None:
         print(" ".join(f"{k} {v:.4g}" if isinstance(v, float) else f"{k} {v}" for k, v in row.items()))
         if not 0 <= row["val_fvu"] < 10:
             raise RuntimeError(f"Val FVU out of range: {row}")
+
+    if not history:  # --epochs 0: untrained control (random unit-norm dictionary, tied encoder)
+        val_eval = evaluate(model, x_val, args.batch_size)
+        history.append({"epoch": 0, "val_fvu": val_eval["fvu"], "dead_fraction_val": val_eval["dead_fraction"]})
+        print(f"untrained: val_fvu {val_eval['fvu']:.4g} dead_fraction_val {val_eval['dead_fraction']:.4g}")
 
     torch.save({"config": model.config(), "state_dict": model.state_dict()}, args.output_dir / "sae.pt")
     pd.DataFrame(history).to_csv(args.output_dir / "metrics.csv", index=False)

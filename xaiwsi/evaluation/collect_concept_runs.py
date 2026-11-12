@@ -27,6 +27,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sweep-dir", type=Path, required=True)
     parser.add_argument("--sae-root", type=Path, default=Path("data/processed/sae/h-optimus-1-fp16"))
+    parser.add_argument("--bags", nargs="+", default=None, help="keep only these bag kinds (mean, frac)")
+    parser.add_argument("--preps", nargs="+", default=None, help="keep only these table preprocessings, e.g. min0_clip")
+    parser.add_argument("--seeds", type=int, nargs="+", default=None, help="keep only these SAE seeds")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -67,6 +70,11 @@ def main() -> None:
         raise ValueError(f"Slide-mean baselines differ between runs:\n{spread}")
 
     long = pd.DataFrame(rows)
+    for column, values in (("bag", args.bags), ("prep", args.preps), ("seed", args.seeds)):
+        if values is not None:
+            long = long[long[column].isin(values)]
+    if long.empty:
+        raise SystemExit("No rows left after --bags/--preps/--seeds")
     index = ["sae", "train_cohorts", "latents", "k", "seed", "val_fvu", "bag", "prep"]
     wide = long.pivot_table(index=index, columns="key", values=["median_spearman", "median_r2"])
     wide.columns = [f"{metric} {key}" for metric, key in wide.columns]

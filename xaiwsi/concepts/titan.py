@@ -11,7 +11,8 @@ level 0 (``step_size`` x ``downsample``) is TITAN's ``patch_size_lv0``.
     uv run python -m xaiwsi.concepts.titan --config outputs/conch_titan/config.yaml \\
         --cohorts tcga-luad tcga-lusc cptac-luad cptac-lusc --reference
 
-Writes ``<cohort dir>/wsi-embeddings/titan/slides.parquet`` (slide_id x 768, float32), a slide-level
+Writes ``<cohort dir>/wsi-embeddings/titan/slides.parquet`` (slide_id x 768, float32; slides already in
+it are kept unless ``--overwrite``), a slide-level
 embedding next to the tile stores. ``--reference`` compares
 the TCGA slides with the embeddings MahmoodLab released (``TCGA_TITAN_features.pkl``, same
 model, their own tiling) and writes the cosine similarity to ``--check-dir``: an end-to-end check of our tiling and
@@ -78,6 +79,7 @@ def main() -> None:
     parser.add_argument("--cohorts", nargs="+", required=True, help="<name> from --config, or <name>=<embedding dir>")
     parser.add_argument("--reference", action="store_true", help="compare TCGA slides with the released TITAN embeddings")
     parser.add_argument("--check-dir", type=Path, default=Path("outputs/titan_check"), help="for <cohort>_reference_cosine.csv")
+    parser.add_argument("--overwrite", action="store_true", help="re-encode slides already in slides.parquet")
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_titan(device)
@@ -86,8 +88,12 @@ def main() -> None:
         out_dir = paths.slide_embedding_dir(embedding_dir, "titan")
         out_dir.mkdir(parents=True, exist_ok=True)
         store = build_embedding_store_from_dir(root_dir=embedding_dir)
-        rows = {}
-        for slide_id in tqdm(sorted(store.slide_ids()), desc=cohort):
+        rows, done = {}, pd.DataFrame()
+        if (out_dir / "slides.parquet").exists() and not args.overwrite:
+            done = pd.read_parquet(out_dir / "slides.parquet")
+        todo = sorted(set(store.slide_ids()) - set(done.index.astype(str)))
+        print(f"[{cohort}] {len(done)} slides already encoded, {len(todo)} to encode")
+        for slide_id in tqdm(todo, desc=cohort):
             tiles, coords, attrs = store.load(slide_id)
             if len(tiles) == 0:
                 continue
@@ -95,6 +101,7 @@ def main() -> None:
                 raise SystemExit(f"{embedding_dir}: encoder {attrs.get('encoder_name')!r}, TITAN needs conch-v1.5 features")
             rows[slide_id] = encode_slide(model, tiles, coords, patch_size_lv0(attrs), device)
         frame = pd.DataFrame.from_dict(rows, orient="index", columns=[f"titan{j}" for j in range(768)]).astype(np.float32)
+        frame = pd.concat([done, frame]).sort_index() if len(done) else frame
         frame.index.name = "slide_id"
         if not np.isfinite(frame.to_numpy()).all():
             raise SystemExit(f"[{cohort}] non-finite TITAN embeddings")

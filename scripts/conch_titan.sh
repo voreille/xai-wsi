@@ -84,16 +84,11 @@ if [[ " $STAGES " == *" embed "* ]]; then
 fi
 
 if [[ " $STAGES " == *" titan "* ]]; then
-    missing=()
-    for cohort in $NAMES; do
-        [[ -f data/processed/$cohort/wsi-embeddings/titan/slides.parquet ]] || missing+=("$cohort")
-    done
-    if (( ${#missing[@]} )); then
-        echo "titan ${missing[*]}"
-        # shellcheck disable=SC2086
-        CUDA_VISIBLE_DEVICES=$first_gpu uv run python -m xaiwsi.concepts.titan \
-            --config "$CONFIG" --cohorts "${missing[@]}" --reference --check-dir "$OUT/titan_check" 2>&1 | tee "$OUT/logs/titan.log" | grep "^\["
-    fi
+    # Incremental: slides already in <cohort>/wsi-embeddings/titan/slides.parquet are kept.
+    # shellcheck disable=SC2086
+    CUDA_VISIBLE_DEVICES=$first_gpu uv run python -m xaiwsi.concepts.titan \
+        --config "$CONFIG" --cohorts $NAMES --reference --check-dir "$OUT/titan_check" 2>&1 \
+        | tee "$OUT/logs/titan.log" | grep "^\["
 fi
 
 if [[ " $STAGES " == *" probe "* ]]; then

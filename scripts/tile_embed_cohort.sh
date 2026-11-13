@@ -30,6 +30,7 @@ TILING_CONFIG=${TILING_CONFIG:-$REPO/configs/tiling/tiling.yaml}
 MODEL=${MODEL:-h-optimus-1}
 TILES_GRID=${TILES_GRID:-224px}
 BATCH_SIZE=${BATCH_SIZE:-256}
+NUM_WORKERS=${NUM_WORKERS:-8}  # 0 in claude-box (64 MB /dev/shm)
 
 OUT=$REPO/data/processed/$COHORT
 TILES=$OUT/wsi-tiles/$TILES_GRID
@@ -58,7 +59,7 @@ if [[ " $STAGES " == *" embed "* ]]; then
         --model-name "$MODEL" \
         --output-dir "$EMB/$MODEL" \
         --batch-size "$BATCH_SIZE" \
-        --num-workers 8
+        --num-workers "$NUM_WORKERS"
 fi
 
 if [[ " $STAGES " == *" repack "* ]]; then

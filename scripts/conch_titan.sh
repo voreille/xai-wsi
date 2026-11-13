@@ -111,7 +111,7 @@ if [[ " $STAGES " == *" sweep "* ]]; then
             CONDITION=tcga-$side PROBE_COHORTS="$probe_cohorts" GPUS="$GPUS" \
             OUT_ROOT="$OUT/sweep_$side" bash scripts/concept_sweep.sh
         uv run python -m xaiwsi.evaluation.collect_concept_runs --sweep-dir "$OUT/sweep_$side" \
-            --sae-root "data/processed/sae/$EMBEDDING" --output "$OUT/sweep_$side/summary"
+            --sae-root "models/sae/$EMBEDDING" --output "$OUT/sweep_$side/summary"
     done
 fi
 

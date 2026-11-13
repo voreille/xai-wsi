@@ -79,7 +79,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--condition", required=True)
-    parser.add_argument("--sae", required=True, help="bag folder name under <cohort dir>/concepts/ (with tiles/)")
+    parser.add_argument("--sae", required=True, help="bag name under outputs/concept-bags/<store>/ (with tiles/)")
     parser.add_argument("--slide-means-dir", type=Path, required=True)
     parser.add_argument("--tissue-probe", default="ignite", help="applied tissue probe under <cohort dir>/tissue/")
     parser.add_argument(

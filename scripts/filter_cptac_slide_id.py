@@ -9,7 +9,7 @@ https://pathdb.cancerimagingarchive.net/system/files/collectionmetadata/202407/c
         --metadata data/external/tcia/cptac_metadata_07-09-2024.csv --tumor LSCC \\
         --output data/processed/cptac-lusc/metadata/slide_filenames.json
 
-The CPTAC-LUAD list (data/tiles/cptac/slide_filenames.json) was made from
+The CPTAC-LUAD list (data/processed/cptac-luad/metadata/slide_filenames.json) was made from
 /mnt/nas6/data/CPTAC/TCIA_CPTAC_LUAD_Pathology_Data_Table.csv with the same filter, which
 has no Tumor column (omit --tumor).
 """

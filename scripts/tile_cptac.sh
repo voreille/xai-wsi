@@ -2,9 +2,9 @@
 set -euo pipefail
 
 CPTAC_PATH=/mnt/nas6/data/CPTAC/CPTAC-LUAD_v12/LUAD
-OUTPUT_PATH=/home/valentin/workspaces/xai-wsi/data/tiles/cptac
+OUTPUT_PATH=/home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/wsi-tiles/224px
 CONFIG_PATH=/home/valentin/workspaces/xai-wsi/configs/tiling/tiling.yaml
-SLIDES_LIST=/home/valentin/workspaces/xai-wsi/data/tiles/cptac/slide_filenames.json
+SLIDES_LIST=/home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/metadata/slide_filenames.json
 
 mkdir -p "$OUTPUT_PATH"
 

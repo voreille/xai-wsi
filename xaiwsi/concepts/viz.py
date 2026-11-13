@@ -136,7 +136,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--condition", required=True, help="one training cohort of the config")
-    parser.add_argument("--sae", required=True, help="bag folder name under <cohort dir>/concepts/ (with tiles/)")
+    parser.add_argument("--sae", required=True, help="bag name under outputs/concept-bags/<store>/ (with tiles/)")
     parser.add_argument("--pathways", nargs="+", required=True)
     parser.add_argument("--per-pathway", type=int, default=3, help="concepts per sign and pathway")
     parser.add_argument("--site-concepts", type=int, default=0)

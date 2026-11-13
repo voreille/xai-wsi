@@ -2,8 +2,8 @@
 set -euo pipefail
 
 SLIDES_ROOTDIR=/mnt/nas6/data/CPTAC/CPTAC-LUAD_v12/LUAD
-TILES_DIR=/home/valentin/workspaces/xai-wsi/data/tiles/cptac
-OUTPUT_DIR=/home/valentin/workspaces/xai-wsi/data/embeddings/cptac
+TILES_DIR=/home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/wsi-tiles/224px
+OUTPUT_DIR=/home/valentin/workspaces/xai-wsi/data/processed/cptac-luad/wsi-embeddings/h-optimus-1
 
 mkdir -p "$(dirname "${OUTPUT_DIR}")"
 

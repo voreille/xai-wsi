@@ -2,7 +2,7 @@
 set -euo pipefail
 
 TCGA_PATH=/mnt/nas7/data/TCGA_Lung_svs/LUAD
-OUTPUT_PATH=/home/valentin/workspaces/xai-wsi/data/tiles/tcga
+OUTPUT_PATH=/home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/wsi-tiles/224px
 CONFIG_PATH=/home/valentin/workspaces/xai-wsi/configs/tiling/tiling.yaml
 
 mkdir -p "$(dirname "${OUTPUT_PATH}")"

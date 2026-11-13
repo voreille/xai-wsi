@@ -5,7 +5,7 @@ in it, takes the per-case error (mean absolute error over the Hallmarks) and ask
 per-slide score of the paired slide ranks it:
 
 - ``mean_rel_error``, ``tile_fvu``, ``n_tiles``: from the SAE's bag table
-  (``<cohort dir>/concepts/<sae>/slides.parquet``, ``xaiwsi.concepts.bags``);
+  (``outputs/concept-bags/<store>/<sae>/<cohort>/slides.parquet``, ``xaiwsi.concepts.bags``);
 - ``residual_norm``: norm of the mean residual (``slides_residual.parquet``,
   ``xaiwsi.concepts.residual``), when present.
 
@@ -85,7 +85,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--condition", required=True, help="training cohorts of the probe, comma-separated")
-    parser.add_argument("--sae", required=True, help="bag folder name under <cohort dir>/concepts/")
+    parser.add_argument("--sae", required=True, help="bag name under outputs/concept-bags/<store>/")
     parser.add_argument("--predictions", nargs="+", required=True, help="<label>=<predictions parquet>")
     parser.add_argument("--coverages", type=float, nargs="+", default=[0.9, 0.8, 0.7, 0.5])
     parser.add_argument("--bootstrap", type=int, default=2000)

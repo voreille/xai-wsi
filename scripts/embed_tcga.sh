@@ -2,8 +2,8 @@
 set -euo pipefail
 
 SLIDES_ROOTDIR=/mnt/nas7/data/TCGA_Lung_svs/LUAD
-TILES_DIR=/home/valentin/workspaces/xai-wsi/data/tiles/tcga
-OUTPUT_DIR=/home/valentin/workspaces/xai-wsi/data/embeddings/tcga
+TILES_DIR=/home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/wsi-tiles/224px
+OUTPUT_DIR=/home/valentin/workspaces/xai-wsi/data/processed/tcga-luad/wsi-embeddings/h-optimus-1
 CONFIG_PATH=/home/valentin/workspaces/xai-wsi/configs/tiling/tiling.yaml
 
 mkdir -p "$(dirname "${OUTPUT_DIR}")"

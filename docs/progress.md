@@ -1882,8 +1882,8 @@ h-optimus-1-fp16, live latents (rows top-k):
   and below TITAN and the H-optimus-1 slide mean.
 - CPTAC-LSCC: level with the CONCH slide mean (−0.002, +0.010, −0.011; all n.s.), and above
   TITAN by +0.03 to +0.05, n.s.
-- Small dictionaries are fully used (K ≤ 512: 98–100% of latents live, against 80–98%
-  dead at K ≥ 1024), but at fixed k the val FVU stops falling at K ≈ 256 (k 16: 0.11 from
+- Small dictionaries are fully used (K ≤ 512: 96–100% of latents live; K 4096/16384:
+  67–98% dead), but at fixed k the val FVU stops falling at K ≈ 256 (k 16: 0.11 from
   K 128 to 16384). CONCH tiles do not need more than a few hundred directions: no sign of
   superposition. Together with the earlier grids, this closes the CONCH dictionary/sparsity
   search: no CONCH SAE setting family beats its slide mean on either CPTAC cohort.

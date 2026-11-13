@@ -78,16 +78,21 @@ What this means for code written now:
 - `xaiwsi/rna/encoders/bulkformer/`: frozen BulkFormer (vendored upstream model code, kept
   unchanged; our code is in `load.py`/`preprocess.py`/`embed.py`), configs in `configs/rna/`.
   Uses native `torch.sparse` instead of `torch_sparse`; don't add torch-scatter/sparse.
-- Disk layout (2026-11-13, `xaiwsi/paths.py`; build paths with it, not `parent.parent`):
-  `data/processed/<cohort>/` holds data only: `metadata/`, `rna/`, `rna-embeddings/`,
-  `tissue/<store>/<probe>/` (ignite, anorak, tile-qc), `wsi-tiles/<grid>/` (224px, 512px) and
-  `wsi-embeddings/<store>/` (tile stores; slide encoders such as `titan/slides.parquet` too).
-  Fitted models go to `models/<kind>/<store>/<name>/` (sae, panther, tile-pca), slide features
-  computed with them to `outputs/{concept,panther}-bags/<store>/<name>/<cohort>/`, caches to
-  `outputs/cache/<cohort>/`. Probe features: `bags:<sae>/slides_mean`, `panther:<name>/slides_pi`,
-  `table:<path relative to the cohort dir>`.
+- Disk layout (2026-11-13, `xaiwsi/paths.py`; build paths with it, not `parent.parent`).
+  `data/` holds data only, organised by cohort; never write fitted models or results there.
+  - `data/processed/<cohort>/`: `metadata/`, `rna/`, `rna-embeddings/`,
+    `tissue/<store>/<probe>/` (ignite, anorak, tile-qc), `wsi-tiles/<grid>/` (224px, 512px) and
+    `wsi-embeddings/<store>/` (tile stores; slide encoders such as `titan/slides.parquet` too).
+  - Reference datasets of the tissue probes: `data/processed/{ignite,anorak}/wsi-embeddings/<store>/`.
+  - Fitted models: `models/<kind>/<store>/<name>/` (sae, panther, tile-pca; BulkFormer weights
+    in `models/external/`). The store is a path level, never a name prefix.
+  - Slide features computed with them: `outputs/{concept,panther}-bags/<store>/<name>/<cohort>/`;
+    caches: `outputs/cache/<cohort>/`.
+  - Probe features: `bags:<sae>/slides_mean`, `panther:<name>/slides_pi`,
+    `table:<path relative to the cohort dir>`.
 - Tile embedding stores: `wsi-embeddings/h-optimus-1/` (original fp32, LZF, tiny chunks)
-  and `h-optimus-1-fp16/` (repacked with `wsi-repack`, used by alignment). Alignment
+  and `h-optimus-1-fp16/` (repacked with `wsi-repack`, used by alignment); keep the fp32
+  originals. CONCH v1.5 (`conch-v1.5{,-fp16}`, 768-d) is on its own 512px grid and feeds TITAN. Alignment
   training caches decoded slides in RAM (`data.cache_tiles`).
 - `xaiwsi/data/pathway.py`: case pairing of RNA and slides, splits, embedding dataset.
 - `xaiwsi/data/cohorts.py`: `CohortSpec` (paths from `<processed_root>/<name>/`), per-cohort

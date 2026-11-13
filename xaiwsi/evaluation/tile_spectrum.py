@@ -1,7 +1,8 @@
 """Effective dimensionality of tile embedding stores (PCA spectrum on a tile sample).
 
 Samples ``--slides`` slides and ``--tiles`` tiles per slide of each store, centres them and
-reports the number of PCs for 80/90/97/99% of the variance, the participation ratio
+reports the number of PCs for 80/90/97/99% of the variance, the numerical rank (singular
+values above 1e-3 of the largest), the participation ratio
 ``(sum λ)² / sum λ²`` and the first eigenvalue's share. Used to compare tile encoders before
 setting SAE sparsity (README 2f).
 
@@ -48,13 +49,15 @@ def main() -> None:
             blocks.append(tiles[rng.choice(len(tiles), min(args.tiles, len(tiles)), replace=False)])
         x = np.concatenate(blocks)
         x -= x.mean(0)
-        ev = np.linalg.svd(x, compute_uv=False) ** 2
-        ev /= ev.sum()
+        sv = np.linalg.svd(x, compute_uv=False)
+        ev = sv**2 / np.sum(sv**2)
         cum = np.cumsum(ev)
         row = {"cohort": cohort_name(path), "store": store_name(path), "tiles": len(x), "dim": x.shape[1]}
         for q in (0.8, 0.9, 0.97, 0.99):
             row[f"pcs_{q:g}"] = int(np.searchsorted(cum, q)) + 1
         row["participation_ratio"] = float(1 / np.sum(ev**2))
+        # numerical rank: singular values above 1e-3 of the largest (fp16 stores)
+        row["rank_1e-3"] = int((sv > 1e-3 * sv[0]).sum())
         row["top1_share"] = float(ev[0])
         rows.append(row)
 

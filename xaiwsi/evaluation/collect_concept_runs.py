@@ -38,7 +38,8 @@ def encoder_settings(encoder: str, root: Path, name: str) -> dict:
         train = json.loads((root / name / "train.json").read_text())
         settings = train["settings"]
         return {"sae": name, "train_cohorts": "+".join(train["train_cohorts"]), "latents": settings["latents"],
-                "k": settings["k"], "seed": settings["seed"], "val_fvu": train["final"]["val_fvu"]}
+                "k": settings["k"], "whiten_eps": settings.get("whiten_eps"), "seed": settings["seed"],
+                "val_fvu": train["final"]["val_fvu"]}
     settings = json.loads((root / name / "prototypes.json").read_text())["settings"]
     return {"panther": name, "train_cohorts": "+".join(settings["train_cohorts"]),
             "components": settings["components"], "projection": Path(settings["pca"]).stem.rsplit("_", 1)[-1]

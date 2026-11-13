@@ -7,7 +7,9 @@
 # and without clipping the bags to their training range and dropping rarely active concepts.
 # Choose settings on TCGA-val only; CPTAC is reported, never used to pick.
 #
-# Names: <cohorts>_k<latents>_top<k>_s<seed> (cohorts joined by '+'), SAE under
+# WHITEN_EPS=<e> ZCA-whitens the SAE inputs (train_sae --whiten-eps) and tags names with _w<e>.
+#
+# Names: <cohorts>_k<latents>_top<k>[_w<eps>]_s<seed> (cohorts joined by '+'), SAE under
 # models/sae/<embedding>/<name>/, bags under outputs/concept-bags/<embedding>/<name>/<cohort>/, probe under
 # OUT_ROOT/<name>/. Finished steps are skipped on rerun.
 #
@@ -35,6 +37,7 @@ LATENTS=${LATENTS:-"1024 4096 16384"}
 TOPK=${TOPK:-"16 32 64"}
 TRAIN_COHORT_SETS=${TRAIN_COHORT_SETS:-"tcga-luad tcga-luad,tcga-lusc"}
 SEEDS=${SEEDS:-"0"}
+WHITEN_EPS=${WHITEN_EPS:-}
 EPOCHS=${EPOCHS:-30}
 CONDITION=${CONDITION:-tcga-luad}
 PROBE_COHORTS=${PROBE_COHORTS:-"tcga-luad cptac-luad"}
@@ -50,7 +53,9 @@ mkdir -p "$LOG_DIR"
 
 run_one() {
     local gpu=$1 cohorts=$2 latents=$3 topk=$4 seed=$5
-    local name="${cohorts//,/+}_k${latents}_top${topk}_s${seed}"
+    local name="${cohorts//,/+}_k${latents}_top${topk}${WHITEN_EPS:+_w$WHITEN_EPS}_s${seed}"
+    local whiten=()
+    [[ -n "$WHITEN_EPS" ]] && whiten=(--whiten-eps "$WHITEN_EPS")
     local sae_dir="models/sae/$EMBEDDING/$name"
     local probe_dir="$OUT_ROOT/$name"
     if [[ -f "$sae_dir/sae.pt" ]]; then
@@ -60,7 +65,7 @@ run_one() {
         # shellcheck disable=SC2086
         CUDA_VISIBLE_DEVICES=$gpu uv run python -m xaiwsi.concepts.train_sae \
             --config "$CONFIG" --train-cohorts ${cohorts//,/ } \
-            --latents "$latents" --k "$topk" --epochs "$EPOCHS" --seed "$seed" \
+            --latents "$latents" --k "$topk" --epochs "$EPOCHS" --seed "$seed" "${whiten[@]}" \
             --output-dir "$sae_dir" > "$LOG_DIR/$name.train.log" 2>&1 \
             || { echo "FAIL train $name, see $LOG_DIR/$name.train.log"; return 1; }
     fi

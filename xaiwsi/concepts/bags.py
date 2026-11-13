@@ -84,7 +84,7 @@ def encode_slide(model: TopKSAE, tiles: np.ndarray, chunk: int, device: torch.de
         all_indices.append(indices.cpu())
     mean_act = sums / n
     x_mean = x_sum / n
-    recovered = (mean_act @ model.decoder + model.pre_bias) * model.input_scale + model.input_mean
+    recovered = model.denormalize(mean_act @ model.decoder + model.pre_bias)
     rel_error = ((x_mean - recovered).norm() / (x_mean - model.input_mean).norm()).item()
     return {
         "mean": mean_act.cpu().numpy(),

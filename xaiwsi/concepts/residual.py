@@ -24,6 +24,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import torch
 from wsitools.storage.factory import build_embedding_store_from_dir
 
 from xaiwsi import paths
@@ -43,8 +44,6 @@ def main() -> None:
     model = load_sae(args.sae / "sae.pt")
     decoder = model.decoder.detach().double().numpy()
     pre_bias = model.pre_bias.detach().double().numpy()
-    input_mean = model.input_mean.double().numpy()
-    scale = float(model.input_scale)
 
     for cohort, embedding_dir in embedding_dirs(args.config, args.cohorts).items():
         bag_dir = paths.bag_dir("concept", embedding_dir, name)
@@ -53,12 +52,14 @@ def main() -> None:
         slide_ids = list(bags.index)
         store = build_embedding_store_from_dir(root_dir=embedding_dir)
         means = slide_means(store, slide_ids, paths.cache_dir(embedding_dir) / f"slide_means_{embedding_dir.name}.parquet")
-        x_norm = (means.loc[slide_ids].to_numpy(np.float64) - input_mean) / scale
+        x_norm = model.normalize(torch.from_numpy(means.loc[slide_ids].to_numpy(np.float32))).double().numpy()
         recon = bags.to_numpy(np.float64) @ decoder + pre_bias
         residual = x_norm - recon
 
-        # Same definition as bags.encode_slide, in normalised units (the scale cancels).
-        rel_error = np.linalg.norm(residual, axis=1) / np.linalg.norm(x_norm, axis=1)
+        # Same definition as bags.encode_slide, in raw units (differs from normalised units
+        # once the SAE whitens).
+        raw = lambda v: (model.denormalize(torch.from_numpy(v).float()) - model.input_mean).double().numpy()
+        rel_error = np.linalg.norm(raw(residual), axis=1) / np.linalg.norm(raw(x_norm), axis=1)
         recorded = pd.read_parquet(bag_dir / "slides.parquet")["mean_rel_error"]
         recorded.index = recorded.index.astype(str)
         gap = np.abs(rel_error - recorded.loc[slide_ids].to_numpy()).max()

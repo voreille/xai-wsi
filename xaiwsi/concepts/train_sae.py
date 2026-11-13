@@ -10,6 +10,11 @@ DataLoader is involved (5.6M TCGA-LUAD training tiles, about 17 GB; LUAD+LUSC 11
         --train-cohorts tcga-luad --latents 4096 --k 32 \\
         --output-dir models/sae/h-optimus-1-fp16/tcga-luad_k4096_top32
 
+``--whiten-eps e`` whitens the inputs first (diagnostic for low-rank encoders such as CONCH
+v1.5): regularised ZCA ``W = V diag((λ + e·mean(λ))^-1/2) V^T`` from the covariance of the
+same training-tile sample as the mean and scale, so directions of low variance are no longer
+negligible in the reconstruction loss. Still an affine map, so slide means stay linear in ā.
+
 Writes ``sae.pt`` (config, state dict; ``xaiwsi.models.sae.load_sae``), ``metrics.csv`` (per
 epoch: train loss and FVU, val FVU, dead fraction on train and val) and ``train.json``
 (settings, slides, final metrics).
@@ -79,6 +84,9 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--tiles-per-slide", type=int, default=None, help="default: all tiles")
     parser.add_argument("--val-tiles-per-slide", type=int, default=512)
+    parser.add_argument(
+        "--whiten-eps", type=float, default=None, help="ZCA-whiten inputs, ridge = eps * mean eigenvalue"
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
@@ -105,14 +113,34 @@ def main() -> None:
     x_train, x_val = x_train.to(device), x_val.to(device)
     print(f"{len(x_train)} train tiles ({len(train_slides)} slides), {len(x_val)} val tiles ({len(val_slides)} slides)")
 
+    whiten = args.whiten_eps is not None
     model = TopKSAE(
-        x_train.shape[1], args.latents, args.k, aux_k=args.aux_k, aux_coef=args.aux_coef, dead_after=args.dead_after
+        x_train.shape[1],
+        args.latents,
+        args.k,
+        aux_k=args.aux_k,
+        aux_coef=args.aux_coef,
+        dead_after=args.dead_after,
+        whiten=whiten,
     ).to(device)
     sample = x_train[torch.randperm(len(x_train), device=device)[:200_000]].float()
     mean = sample.mean(0)
+    centred = sample - mean
+    whiten_stats = {}
+    if whiten:
+        eigvals, eigvecs = torch.linalg.eigh((centred.T.double() @ centred.double()) / (len(centred) - 1))
+        eigvals = eigvals.clamp_min(0)
+        ridge = args.whiten_eps * eigvals.mean()
+        w = (eigvecs * (eigvals + ridge).rsqrt()) @ eigvecs.T
+        w_inv = (eigvecs * (eigvals + ridge).sqrt()) @ eigvecs.T
+        whiten_stats = {"whiten": w.float(), "unwhiten": w_inv.float()}
+        centred = centred @ whiten_stats["whiten"]
+        shares = eigvals / (eigvals + ridge)
+        print(f"whitening: ridge {ridge.item():.4g}, effective dims {shares.sum().item():.1f} of {len(eigvals)}")
     # One global scale so that E||x_norm||^2 = D (Gao et al.); affine, keeps slide means linear.
-    scale = math.sqrt((sample - mean).pow(2).sum(1).mean().item() / x_train.shape[1])
-    model.set_input_stats(mean, scale)
+    scale = math.sqrt(centred.pow(2).sum(1).mean().item() / x_train.shape[1])
+    model.set_input_stats(mean, scale, **whiten_stats)
+    del sample, centred
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=6.25e-10)
     steps_per_epoch = math.ceil(len(x_train) / args.batch_size)
     total = args.epochs * steps_per_epoch

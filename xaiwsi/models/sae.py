@@ -5,7 +5,9 @@ autoencoders").
 ``x_hat = z D + b_pre`` with unit-norm decoder rows ``D`` (K x D_in). Inputs are standardised
 with a fixed per-dimension mean and one global scale (``set_input_stats``), an affine map,
 so the slide mean of the inputs is still recovered linearly from the slide mean of the codes:
-``mean_i x_i ≈ (mean_i z_i) D * scale + mean + b_pre * scale``.
+``mean_i x_i ≈ (mean_i z_i) D * scale + mean + b_pre * scale``. With ``whiten=True`` the
+centred inputs are also multiplied by a fixed (regularised ZCA) whitening matrix before the
+scale, still affine; ``denormalize`` inverts the map.
 
 Dead latents (no activation for ``dead_after`` training tiles) get the auxiliary loss of Gao
 et al.: the residual is reconstructed from the ``aux_k`` largest dead pre-activations, with
@@ -28,9 +30,11 @@ class TopKSAE(nn.Module):
         aux_k: int = 512,
         aux_coef: float = 1 / 32,
         dead_after: int = 10_000_000,
+        whiten: bool = False,
     ) -> None:
         super().__init__()
         self.input_dim, self.n_latents, self.k = input_dim, n_latents, k
+        self.whiten = whiten
         self.aux_k, self.aux_coef, self.dead_after = aux_k, aux_coef, dead_after
         self.encoder = nn.Linear(input_dim, n_latents)
         self.decoder = nn.Parameter(torch.empty(n_latents, input_dim))
@@ -43,14 +47,39 @@ class TopKSAE(nn.Module):
             self.encoder.bias.zero_()
         self.register_buffer("input_mean", torch.zeros(input_dim))
         self.register_buffer("input_scale", torch.ones(()))
+        if whiten:
+            self.register_buffer("input_whiten", torch.eye(input_dim))
+            self.register_buffer("input_unwhiten", torch.eye(input_dim))
         self.register_buffer("tiles_since_active", torch.zeros(n_latents, dtype=torch.long))
 
-    def set_input_stats(self, mean: torch.Tensor, scale: float) -> None:
+    def set_input_stats(
+        self,
+        mean: torch.Tensor,
+        scale: float,
+        whiten: torch.Tensor | None = None,
+        unwhiten: torch.Tensor | None = None,
+    ) -> None:
+        """``whiten``/``unwhiten`` (D x D, mutual inverses) are required iff ``self.whiten``."""
+        if self.whiten != (whiten is not None and unwhiten is not None):
+            raise ValueError("whiten and unwhiten must be given exactly when the SAE whitens")
         self.input_mean.copy_(mean)
         self.input_scale.fill_(scale)
+        if self.whiten:
+            self.input_whiten.copy_(whiten)
+            self.input_unwhiten.copy_(unwhiten)
 
     def normalize(self, x: torch.Tensor) -> torch.Tensor:
-        return (x.float() - self.input_mean) / self.input_scale
+        centred = x.float() - self.input_mean
+        if self.whiten:
+            centred = centred @ self.input_whiten
+        return centred / self.input_scale
+
+    def denormalize(self, x_norm: torch.Tensor) -> torch.Tensor:
+        """Inverse of ``normalize``: normalised units back to raw embeddings."""
+        x = x_norm * self.input_scale
+        if self.whiten:
+            x = x @ self.input_unwhiten
+        return x + self.input_mean
 
     def pre_activations(self, x_norm: torch.Tensor) -> torch.Tensor:
         return F.relu(self.encoder(x_norm - self.pre_bias))
@@ -130,6 +159,7 @@ class TopKSAE(nn.Module):
             "aux_k": self.aux_k,
             "aux_coef": self.aux_coef,
             "dead_after": self.dead_after,
+            "whiten": self.whiten,
         }
 
 

@@ -13,6 +13,7 @@
 #   bootstrap  paired bootstraps -> $OUT/bootstrap/: vs the CONCH slide mean, SAE vs TITAN, and
 #              against the H-optimus-1 slide mean and bags (same targets and cases)
 # Choose settings on TCGA val only. VALPICK=<k..._top..> adds the val pick's seeds as a row.
+# WHITEN_EPS=<e> (sweep only): whitened SAEs (concept_sweep.sh), probed into $OUT/sweep_<side>_w<e>.
 #
 # Writes $OUT/config.yaml: configs/training/pathway_cohorts.yaml with data.embedding conch-v1.5-fp16
 # and the tile model's input_dim 768.
@@ -34,6 +35,7 @@ LATENTS=${LATENTS:-"1024 4096 16384"}
 TOPK=${TOPK:-"16 32 64"}
 SEEDS=${SEEDS:-"0"}
 VALPICK=${VALPICK:-}
+WHITEN_EPS=${WHITEN_EPS:-}
 CONFIG=$OUT/config.yaml
 
 # cohort|slides root|rglob|include list (as in the H-optimus-1 tiling)
@@ -102,11 +104,12 @@ fi
 if [[ " $STAGES " == *" sweep "* ]]; then
     for side in luad lusc; do
         if [[ $side == luad ]]; then probe_cohorts="tcga-luad cptac-luad"; else probe_cohorts="tcga-lusc cptac-lusc"; fi
+        sweep_dir="$OUT/sweep_$side${WHITEN_EPS:+_w$WHITEN_EPS}"
         CONFIG=$CONFIG TRAIN_COHORT_SETS="$SAE_COHORTS" LATENTS="$LATENTS" TOPK="$TOPK" SEEDS="$SEEDS" \
-            CONDITION=tcga-$side PROBE_COHORTS="$probe_cohorts" GPUS="$GPUS" \
-            OUT_ROOT="$OUT/sweep_$side" bash scripts/concept_sweep.sh
-        uv run python -m xaiwsi.evaluation.collect_concept_runs --sweep-dir "$OUT/sweep_$side" \
-            --sae-root "models/sae/$EMBEDDING" --output "$OUT/sweep_$side/summary"
+            CONDITION=tcga-$side PROBE_COHORTS="$probe_cohorts" GPUS="$GPUS" WHITEN_EPS="$WHITEN_EPS" \
+            OUT_ROOT="$sweep_dir" bash scripts/concept_sweep.sh
+        uv run python -m xaiwsi.evaluation.collect_concept_runs --sweep-dir "$sweep_dir" \
+            --sae-root "models/sae/$EMBEDDING" --output "$sweep_dir/summary"
     done
 fi
 

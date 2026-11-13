@@ -42,6 +42,8 @@ TABLE_MIN_ACTIVE=${TABLE_MIN_ACTIVE:-"0 0.05"}
 TABLE_TRANSFORMS=${TABLE_TRANSFORMS:-"none clip"}
 GPUS=${GPUS:-"0"}
 OUT_ROOT=${OUT_ROOT:-outputs/concept_sweep}
+# STEPS="train" trains the SAEs only (e.g. capacity diagnostics before any test cohort exists).
+STEPS=${STEPS:-"train bags probe"}
 LOG_DIR=${LOG_DIR:-$OUT_ROOT/logs}
 
 mkdir -p "$LOG_DIR"
@@ -62,6 +64,7 @@ run_one() {
             --output-dir "$sae_dir" > "$LOG_DIR/$name.train.log" 2>&1 \
             || { echo "FAIL train $name, see $LOG_DIR/$name.train.log"; return 1; }
     fi
+    [[ " $STEPS " == *" bags "* ]] || return 0
     local missing=()
     for cohort in $PROBE_COHORTS; do
         [[ -f "outputs/concept-bags/$EMBEDDING/$name/$cohort/slides_mean.parquet" ]] || missing+=("$cohort")

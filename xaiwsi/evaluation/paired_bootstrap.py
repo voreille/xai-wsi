@@ -24,6 +24,9 @@ runs, on the same resampled cases:
 
 Several ``--baseline`` conditions give one block of rows each, on the same resampled cases.
 
+Globs take shell-style alternatives, ``{a,b}`` (not nested), e.g. a set of SAE settings
+``..._k{64,128,256,512}_top{4,8,16}_s0/...`` as one condition.
+
 A condition can be prefixed with ``<label>=`` to name it in the table (e.g. two files
 with the same name from different output directories).
 
@@ -36,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -141,12 +145,22 @@ def split_label(entry: str) -> tuple[str | None, str]:
     return None, entry
 
 
+def expand_braces(pattern: str) -> list[str]:
+    """Shell-style ``{a,b}`` alternatives (not nested): ``k{64,128}`` -> ``k64``, ``k128``."""
+    match = re.search(r"\{([^{}]*)\}", pattern)
+    if match is None:
+        return [pattern]
+    head, tail = pattern[: match.start()], pattern[match.end() :]
+    return [p for alt in match.group(1).split(",") for p in expand_braces(head + alt + tail)]
+
+
 def expand(pattern: str) -> list[Path]:
     """A prediction file, or a glob over the runs (seeds) of one condition."""
     pattern = split_label(pattern)[1]
-    if not glob.has_magic(pattern):
+    patterns = expand_braces(pattern)
+    if len(patterns) == 1 and not glob.has_magic(pattern):
         return [Path(pattern)]
-    paths = sorted(Path(p) for p in glob.glob(pattern))
+    paths = sorted({Path(p) for pat in patterns for p in glob.glob(pat)})
     if not paths:
         raise SystemExit(f"No prediction files match {pattern!r}.")
     return paths

@@ -17,6 +17,6 @@ model:
       fire_rate: 0.5
       dropout: 0.2
       tile_dropout: 0.0
-      projection_path: /home/valentin/workspaces/xai-wsi/data/processed/tile-pca/h-optimus-1-fp16/tcga-luad_pca64.npz
+      projection_path: /home/valentin/workspaces/xai-wsi/models/tile-pca/h-optimus-1-fp16/tcga-luad_pca64.npz
       whiten: true
       shuffle_positions: false

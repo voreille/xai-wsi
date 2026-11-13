@@ -6,12 +6,13 @@ from pathlib import Path
 
 import numpy as np
 
+from xaiwsi.paths import tissue_dir
+
 
 def artifact_prob_path(embedding_dir: Path) -> Path:
-    """``<cohort dir>/tile-qc/<embedding>/artifact_prob.npz`` for a store at
-    ``<cohort dir>/wsi-embeddings/<embedding>``."""
-    embedding_dir = Path(embedding_dir)
-    return embedding_dir.parent.parent / "tile-qc" / embedding_dir.name / "artifact_prob.npz"
+    """``<cohort dir>/tissue/<store>/tile-qc/artifact_prob.npz`` for a store at
+    ``<cohort dir>/wsi-embeddings/<store>``."""
+    return tissue_dir(embedding_dir) / "tile-qc" / "artifact_prob.npz"
 
 
 def load_artifact_probs(embedding_dir: Path) -> dict[str, np.ndarray]:

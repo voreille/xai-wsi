@@ -13,7 +13,7 @@ from ``--split-file`` (``sample_id, split, validation_fold``) or from ``metadata
 
     uv run python -m xaiwsi.tissue.annotated \\
         --dataset-root /home/valentin/data/fss/ignite \\
-        --output-dir data/processed/tissue/ignite/h-optimus-1
+        --output-dir data/processed/ignite/wsi-embeddings/h-optimus-1
 
 Writes ``embeddings.npy`` (N x D float16), ``fractions.npy`` (N x K float32), ``tiles.parquet``
 (one row per tile: sample_id, x, y, on_grid, split, validation_fold, ignored fraction, plus

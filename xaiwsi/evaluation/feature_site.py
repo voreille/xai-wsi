@@ -8,7 +8,7 @@ cohort dir>``, ``+``-joined.
 
     uv run python -m xaiwsi.evaluation.feature_site --config configs/training/pathway_cohorts.yaml \\
         --cohort tcga-luad \\
-        --features slide-mean table:concepts/tcga-luad_k4096_top32/slides_mean.parquet \\
+        --features slide-mean bags:tcga-luad_k4096_top32/slides_mean \\
         --output outputs/concept_probe/site_tcga-luad
 
 Writes ``<output>.csv`` and ``<output>.md`` (table with the generating command).
@@ -29,6 +29,7 @@ from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
 from xaiwsi.evaluation.cohort_probe import feature_blocks, markdown_table
 from xaiwsi.evaluation.learning_curve import slide_means
 from xaiwsi.evaluation.shared_structure import site_probe, tcga_site
+from xaiwsi.paths import is_table_block, table_path
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
 from xaiwsi.training.run_config import data_args
 
@@ -61,7 +62,6 @@ def main() -> None:
     pairs = pd.concat([p.pairs for p in parts], ignore_index=True)
     slide_ids = pairs["slide_id"].astype(str)
     sites = tcga_site(pairs["case_id"]).to_numpy()
-    cohort_dir = resolved.embedding_dir.parent.parent
     cache = args.slide_means_cache or args.output.parent / f"slide_means_{args.cohort}_{embedding}.parquet"
 
     rows = []
@@ -70,8 +70,8 @@ def main() -> None:
         for block in feature_blocks(features):
             if block == "slide-mean":
                 table = slide_means(parts[0].store, sorted(set(slide_ids)), cache)
-            elif block.startswith("table:"):
-                table = pd.read_parquet(cohort_dir / block.removeprefix("table:"))
+            elif is_table_block(block):
+                table = pd.read_parquet(table_path(block, resolved.embedding_dir))
                 table.index = table.index.astype(str)
             else:
                 raise SystemExit(f"Unknown feature block {block!r}")

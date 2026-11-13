@@ -6,7 +6,7 @@ seen (no val/test tiles). Up to ``--tiles-per-slide`` random tiles per slide are
 
     uv run python -m xaiwsi.data.tile_pca --config configs/training/pathway_cohorts.yaml \\
         --train-cohorts tcga-luad --components 64 \\
-        --output data/processed/tile-pca/h-optimus-1-fp16/tcga-luad_pca64.npz
+        --output models/tile-pca/h-optimus-1-fp16/tcga-luad_pca64.npz
 
 Writes the ``.npz`` (``mean``, ``components`` k x D, ``explained_variance``,
 ``explained_variance_ratio``) and a ``.json`` next to it with the slides and settings.

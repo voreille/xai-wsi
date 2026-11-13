@@ -1418,6 +1418,33 @@ predicts each score.
 
 ## Stage 2
 
+### Disk layout change (2026-11-13)
+
+`data/` now holds data only; fitted models and derived features moved out
+(`scripts/migrate_layout.py`, renames only; `xaiwsi/paths.py` documents the layout). Commands
+and paths in the entries below predate it; translate them with:
+
+| old | new |
+|---|---|
+| `data/processed/sae/<store>/<name>` | `models/sae/<store>/<name>` |
+| `data/processed/panther/<store>/<name>`, `data/processed/tile-pca/<store>` | `models/panther/...`, `models/tile-pca/...` |
+| `<cohort dir>/concepts/<name>/` | `outputs/concept-bags/<store>/<name>/<cohort>/` |
+| `<cohort dir>/concepts/slide_means_*` | `outputs/cache/<cohort>/slide_means_*` |
+| `<cohort dir>/panther/<name>/` | `outputs/panther-bags/<store>/<name>/<cohort>/` |
+| `<cohort dir>/tissue/<probe>/`, `<cohort dir>/tile-qc/<store>/` | `<cohort dir>/tissue/<store>/<probe>/`, `<cohort dir>/tissue/<store>/tile-qc/` |
+| `<cohort dir>/titan/` | `<cohort dir>/wsi-embeddings/titan/` |
+| `<cohort dir>/wsi-tiles/`, `<cohort dir>/wsi-tiles-512/`, `data/tiles/{tcga,cptac}/` | `<cohort dir>/wsi-tiles/{224px,512px}/` |
+| `data/processed/tissue/<probe>/<store>` | `data/processed/<probe>/wsi-embeddings/<store>` |
+| `--features table:concepts/<name>/slides_mean.parquet` | `--features bags:<name>/slides_mean` |
+| `--features table:panther/<name>/slides_pi.parquet` | `--features panther:<name>/slides_pi` |
+| CONCH runs `conch-v1.5-fp16_<name>` | `<name>` (the store is a path level) |
+
+Prediction files written before the change keep their names (`..._table-concepts-<name>-...`);
+new ones are named `..._bags-<name>-...`. Check: the LUAD val-pick probe
+(`bags:tcga-luad+tcga-lusc_k1024_top64_s0/slides_mean`, clip) rerun on the new paths gives the
+stored predictions exactly (max difference 0.0, slide mean and bag). Old run configs that point
+at `data/processed/tile-pca/` (the NCA runs) need the new path.
+
 ### 2f. Supervised baseline: tile-level heads vs SAE concept bags (2026-11-12)
 
 The paper table's supervised rows: tile-level models trained end to end on the 50

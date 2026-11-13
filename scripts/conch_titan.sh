@@ -5,7 +5,7 @@
 # Stages (each skips finished work, so the script can be rerun after a crash):
 #   embed      tile (configs/tiling/tiling_512.yaml) + CONCH v1.5 + fp16 repack of the four
 #              cohorts (scripts/tile_embed_cohort.sh), one queue per GPU
-#   titan      TITAN slide embeddings -> <cohort dir>/titan/slides.parquet, with the cosine to
+#   titan      TITAN slide embeddings -> <cohort dir>/wsi-embeddings/titan/slides.parquet, with the cosine to
 #              MahmoodLab's released TCGA embeddings as an end-to-end check
 #   probe      ridge on the CONCH slide mean and on TITAN, LUAD and LUSC conditions
 #   sweep      SAE concept bags on CONCH (scripts/concept_sweep.sh): LUAD+LUSC SAEs, K x top-k,
@@ -40,7 +40,7 @@ CONFIG=$OUT/config.yaml
 COHORTS=(
     "tcga-luad|/mnt/nas7/data/TCGA_Lung_svs/LUAD|*DX*.svs|"
     "tcga-lusc|/mnt/nas7/data/TCGA_Lung_svs/LUSC|*DX*.svs|"
-    "cptac-luad|/mnt/nas6/data/CPTAC/CPTAC-LUAD_v12/LUAD|*.svs|data/tiles/cptac/slide_filenames.json"
+    "cptac-luad|/mnt/nas6/data/CPTAC/CPTAC-LUAD_v12/LUAD|*.svs|data/processed/cptac-luad/metadata/slide_filenames.json"
     "cptac-lusc|/mnt/nas6/data/CPTAC/CPTAC-LSCC_v10/LSCC|*.svs|data/processed/cptac-lusc/metadata/slide_filenames.json"
 )
 NAMES="tcga-luad tcga-lusc cptac-luad cptac-lusc"
@@ -68,7 +68,7 @@ if [[ " $STAGES " == *" embed "* ]]; then
                 (( j % ${#gpus[@]} == g )) || continue
                 IFS='|' read -r cohort slides rglob include <<< "${COHORTS[$j]}"
                 echo "embed $cohort on GPU ${gpus[$g]}"
-                MODEL=conch-v1.5 TILES_NAME=wsi-tiles-512 TILING_CONFIG=configs/tiling/tiling_512.yaml \
+                MODEL=conch-v1.5 TILES_GRID=512px TILING_CONFIG=configs/tiling/tiling_512.yaml \
                     COHORT=$cohort SLIDES=$slides RGLOB=$rglob INCLUDE_SLIDES=$include GPU=${gpus[$g]} \
                     TILE_WORKERS=$TILE_WORKERS bash scripts/tile_embed_cohort.sh \
                     > "$OUT/logs/embed_$cohort.log" 2>&1 \
@@ -86,13 +86,13 @@ fi
 if [[ " $STAGES " == *" titan "* ]]; then
     missing=()
     for cohort in $NAMES; do
-        [[ -f data/processed/$cohort/titan/slides.parquet ]] || missing+=("$cohort")
+        [[ -f data/processed/$cohort/wsi-embeddings/titan/slides.parquet ]] || missing+=("$cohort")
     done
     if (( ${#missing[@]} )); then
         echo "titan ${missing[*]}"
         # shellcheck disable=SC2086
         CUDA_VISIBLE_DEVICES=$first_gpu uv run python -m xaiwsi.concepts.titan \
-            --config "$CONFIG" --cohorts "${missing[@]}" --reference 2>&1 | tee "$OUT/logs/titan.log" | grep "^\["
+            --config "$CONFIG" --cohorts "${missing[@]}" --reference --check-dir "$OUT/titan_check" 2>&1 | tee "$OUT/logs/titan.log" | grep "^\["
     fi
 fi
 
@@ -100,7 +100,7 @@ if [[ " $STAGES " == *" probe "* ]]; then
     echo "probe slide mean + TITAN"
     uv run python -m xaiwsi.evaluation.cohort_probe \
         --config "$CONFIG" --conditions tcga-luad tcga-lusc \
-        --features slide-mean "table:titan/slides.parquet" \
+        --features slide-mean "table:wsi-embeddings/titan/slides.parquet" \
         --output-dir "$OUT/probe" > "$OUT/logs/probe.log" 2>&1
 fi
 
@@ -116,7 +116,7 @@ if [[ " $STAGES " == *" sweep "* ]]; then
 fi
 
 if [[ " $STAGES " == *" bootstrap "* ]]; then
-    sae_name="${EMBEDDING}_${SAE_COHORTS//,/+}"
+    sae_name="${SAE_COHORTS//,/+}"
     for side in luad lusc; do
         condition=tcga-$side
         if [[ $side == luad ]]; then
@@ -129,11 +129,11 @@ if [[ " $STAGES " == *" bootstrap "* ]]; then
             pairs="cptac-lusc:test tcga-lusc:val"
         fi
         mean="conch-slide-mean=$OUT/probe/predictions/${condition}__per_cohort.parquet"
-        titan="titan=$OUT/probe/predictions/${condition}__per_cohort__table-titan-slides.parquet"
-        sae="conch-sae-9=$OUT/sweep_$side/${sae_name}_k*_s0/predictions/${condition}__per_cohort__table-concepts-${sae_name}_k*_s0-slides_mean__min0_clip.parquet"
+        titan="titan=$OUT/probe/predictions/${condition}__per_cohort__table-wsi-embeddings-titan-slides.parquet"
+        sae="conch-sae-9=$OUT/sweep_$side/${sae_name}_k*_s0/predictions/${condition}__per_cohort__bags-${sae_name}_k*_s0-slides_mean__min0_clip.parquet"
         candidates=("$titan" "$sae")
         if [[ -n $VALPICK ]]; then
-            candidates+=("conch-sae-valpick=$OUT/sweep_$side/${sae_name}_${VALPICK}_s[0-9]/predictions/${condition}__per_cohort__table-concepts-${sae_name}_${VALPICK}_s[0-9]-slides_mean__min0_clip.parquet")
+            candidates+=("conch-sae-valpick=$OUT/sweep_$side/${sae_name}_${VALPICK}_s[0-9]/predictions/${condition}__per_cohort__bags-${sae_name}_${VALPICK}_s[0-9]-slides_mean__min0_clip.parquet")
         fi
         for pair in $pairs; do
             cohort=${pair%%:*}

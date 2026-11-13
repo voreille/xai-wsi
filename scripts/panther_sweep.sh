@@ -12,7 +12,7 @@
 # training cohorts and created here if missing).
 #
 # Names: <cohorts>_c<C>_<projection>_s<seed> (cohorts joined by '+'), prototypes under
-# data/processed/panther/<embedding>/<name>/, slide tables under <cohort dir>/panther/<name>/,
+# models/panther/<embedding>/<name>/, slide tables under outputs/panther-bags/<embedding>/<name>/<cohort>/,
 # probe under OUT_ROOT/<name>/. Finished steps are skipped on rerun.
 #
 # Time per job on an H100 (box check 2026-11-12, full, C=16, TCGA-LUAD + CPTAC-LUAD): 2.5 min
@@ -48,7 +48,7 @@ read -r -a gpus <<< "$GPUS"
 for cohorts in $TRAIN_COHORT_SETS; do
     for projection in $PROJECTIONS; do
         [[ $projection == full ]] && continue
-        pca="data/processed/tile-pca/$EMBEDDING/${cohorts//,/+}_${projection}.npz"
+        pca="models/tile-pca/$EMBEDDING/${cohorts//,/+}_${projection}.npz"
         [[ -f $pca ]] && continue
         echo "tile PCA $pca"
         # shellcheck disable=SC2086
@@ -63,10 +63,10 @@ run_one() {
     local name="${cohorts//,/+}_c${components}_${projection}_s${seed}"
     local probe_dir="$OUT_ROOT/$name"
     local pca_args=()
-    [[ $projection == full ]] || pca_args=(--pca "data/processed/tile-pca/$EMBEDDING/${cohorts//,/+}_${projection}.npz")
+    [[ $projection == full ]] || pca_args=(--pca "models/tile-pca/$EMBEDDING/${cohorts//,/+}_${projection}.npz")
     local missing=()
     for cohort in $PROBE_COHORTS; do
-        [[ -f "data/processed/$cohort/panther/$name/slides_pimu.parquet" ]] || missing+=("$cohort")
+        [[ -f "outputs/panther-bags/$EMBEDDING/$name/$cohort/slides_pimu.parquet" ]] || missing+=("$cohort")
     done
     if (( ${#missing[@]} == 0 )); then
         echo "skip encode $name"
@@ -86,12 +86,11 @@ run_one() {
         return 0
     fi
     echo "probe $name"
-    local t="table:panther/$name/slides"
+    local t="panther:$name/slides"
     # shellcheck disable=SC2086
     uv run python -m xaiwsi.evaluation.cohort_probe \
         --config "$CONFIG" --conditions "$CONDITION" --table-transforms $TABLE_TRANSFORMS \
-        --features slide-mean "$t"_pi.parquet "$t"_mu.parquet "$t"_pi.parquet+"$t"_mu.parquet \
-            "$t"_pi.parquet+"$t"_mu.parquet+"$t"_sigma.parquet "$t"_pimu.parquet \
+        --features slide-mean "$t"_pi "$t"_mu "$t"_pi+"$t"_mu "$t"_pi+"$t"_mu+"$t"_sigma "$t"_pimu \
         --output-dir "$probe_dir" > "$LOG_DIR/$name.probe.log" 2>&1 \
         || { echo "FAIL probe $name, see $LOG_DIR/$name.probe.log"; return 1; }
 }

@@ -12,8 +12,9 @@ Per part:
 - ``domain_auc``: 5-fold CV ROC AUC of an L2 logistic regression (standardised features)
   separating the cohorts.
 
-    uv run python -m xaiwsi.evaluation.concept_shift --reference data/processed/tcga-luad \\
-        --shifted data/processed/cptac-luad --sae-names tcga-luad_k4096_top32_s0 \\
+    uv run python -m xaiwsi.evaluation.concept_shift \\
+        --reference data/processed/tcga-luad/wsi-embeddings/h-optimus-1-fp16 \\
+        --shifted data/processed/cptac-luad/wsi-embeddings/h-optimus-1-fp16 --sae-names tcga-luad_k4096_top32_s0 \\
         --output outputs/concept_residual/shift_luad
 
 Writes ``<output>.csv`` and ``<output>.md`` (with the generating command).
@@ -34,12 +35,14 @@ from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from xaiwsi import paths
 from xaiwsi.evaluation.cohort_probe import markdown_table
 
 
-def load_parts(cohort_dir: Path, name: str) -> dict[str, np.ndarray]:
-    recon = pd.read_parquet(cohort_dir / "concepts" / name / "slides_recon.parquet")
-    residual = pd.read_parquet(cohort_dir / "concepts" / name / "slides_residual.parquet")
+def load_parts(embedding_dir: Path, name: str) -> dict[str, np.ndarray]:
+    bag_dir = paths.bag_dir("concept", embedding_dir, name)
+    recon = pd.read_parquet(bag_dir / "slides_recon.parquet")
+    residual = pd.read_parquet(bag_dir / "slides_residual.parquet")
     residual = residual.loc[recon.index]
     return {
         "mean": (recon + residual).to_numpy(np.float64),
@@ -59,9 +62,9 @@ def domain_auc(x_ref: np.ndarray, x_shift: np.ndarray, c: float, seed: int) -> f
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--reference", type=Path, required=True, help="reference cohort dir (SAE training cohort)")
-    parser.add_argument("--shifted", type=Path, required=True, help="shifted cohort dir")
-    parser.add_argument("--sae-names", nargs="+", required=True, help="bag folder names under concepts/")
+    parser.add_argument("--reference", type=Path, required=True, help="reference cohort's tile store (SAE training cohort)")
+    parser.add_argument("--shifted", type=Path, required=True, help="shifted cohort's tile store")
+    parser.add_argument("--sae-names", nargs="+", required=True, help="bag names under outputs/concept-bags/<store>/")
     parser.add_argument("--c", type=float, default=1e-3, help="inverse L2 strength of the domain classifier")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output", type=Path, required=True)

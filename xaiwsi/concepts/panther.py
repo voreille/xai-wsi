@@ -19,9 +19,9 @@
         --cohorts tcga-luad tcga-lusc cptac-luad cptac-lusc \\
         --output-name tcga-luad_c16
 
-Writes the prototypes to ``data/processed/panther/<embedding>/<name>/prototypes.npz`` (with a
-``.json`` of the settings) and per cohort ``<cohort dir>/panther/<name>/slides_{pi,mu,sigma,pimu}.parquet``
-(slide_id x features), read by ``xaiwsi.evaluation.cohort_probe --features table:panther/<name>/slides_pi.parquet+...``.
+Writes the prototypes to ``models/panther/<embedding>/<name>/prototypes.npz`` (with a
+``.json`` of the settings) and per cohort ``outputs/panther-bags/<embedding>/<name>/<cohort>/slides_{pi,mu,sigma,pimu}.parquet``
+(slide_id x features), read by ``xaiwsi.evaluation.cohort_probe --features panther:<name>/slides_pi+...``.
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ import yaml
 from tqdm import tqdm
 from wsitools.storage.factory import build_embedding_store_from_dir
 
+from xaiwsi import paths
 from xaiwsi.concepts.bags import embedding_dirs
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
@@ -152,7 +153,7 @@ def main() -> None:
     share = torch.bincount(torch.cdist(x, prototypes).argmin(1), minlength=args.components).float() / len(x)
     print(f"K-means on {len(x)} tiles ({len(slides)} slides, d={x.shape[1]}); cluster shares {np.round(share.cpu().numpy(), 3)}")
 
-    proto_dir = Path(processed_root) / "panther" / embedding / args.output_name
+    proto_dir = paths.model_dir("panther", embedding, args.output_name)
     proto_dir.mkdir(parents=True, exist_ok=True)
     np.savez(proto_dir / "prototypes.npz", prototypes=prototypes.cpu().numpy(), variance=variance.cpu().numpy())
     settings = {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}
@@ -168,7 +169,7 @@ def main() -> None:
         "pimu": [f"pimu{c}_{j}" for c in range(args.components) for j in range(d)],
     }
     for cohort, embedding_dir in embedding_dirs(args.config, args.cohorts).items():
-        out_dir = embedding_dir.parent.parent / "panther" / args.output_name
+        out_dir = paths.bag_dir("panther", embedding_dir, args.output_name)
         out_dir.mkdir(parents=True, exist_ok=True)
         if args.save_tiles:
             (out_dir / "tiles").mkdir(exist_ok=True)

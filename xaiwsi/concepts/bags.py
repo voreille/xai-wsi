@@ -10,15 +10,15 @@ distance from the SAE's training mean), next to the tile-level FVU against that 
 
     uv run python -m xaiwsi.concepts.bags --config configs/training/pathway_cohorts.yaml \\
         --cohorts tcga-luad tcga-lusc cptac-luad cptac-lusc \\
-        --sae data/processed/sae/h-optimus-1-fp16/tcga-luad_k4096_top32
+        --sae models/sae/h-optimus-1-fp16/tcga-luad_k4096_top32
 
 Cohorts are named as in ``--config`` or given as ``<name>=<embedding dir>``, like
-``xaiwsi.tissue.apply``. Writes under ``<cohort dir>/concepts/<sae name>/``:
+``xaiwsi.tissue.apply``. Writes under ``outputs/concept-bags/<store>/<sae name>/<cohort>/``:
 ``slides_mean.parquet`` and ``slides_frac.parquet`` (slide_id x ``c<k>``), ``slides.parquet``
 (n_tiles, mean_rel_error, tile_fvu), ``sae.json`` (SAE path and settings) and, unless
 ``--no-tiles``, ``tiles/<slide_id>.npz`` with the per-tile top-k ``indices`` (int16/int32) and
 ``values`` (float16) in store order, for concept maps and top tiles.
-``xaiwsi.evaluation.cohort_probe --features table:concepts/<sae name>/slides_mean.parquet``
+``xaiwsi.evaluation.cohort_probe --features bags:<sae name>/slides_mean``
 reads the bags.
 """
 
@@ -35,6 +35,7 @@ import yaml
 from tqdm import tqdm
 from wsitools.storage.factory import build_embedding_store_from_dir
 
+from xaiwsi import paths
 from xaiwsi.data.cohorts import CohortSpec
 from xaiwsi.models.sae import TopKSAE, load_sae
 from xaiwsi.training.run_config import data_args
@@ -111,7 +112,7 @@ def main() -> None:
     columns = [f"c{k}" for k in range(model.n_latents)]
 
     for cohort, embedding_dir in embedding_dirs(args.config, args.cohorts).items():
-        out_dir = embedding_dir.parent.parent / "concepts" / name
+        out_dir = paths.bag_dir("concept", embedding_dir, name)
         if not args.no_tiles:
             (out_dir / "tiles").mkdir(parents=True, exist_ok=True)
         out_dir.mkdir(parents=True, exist_ok=True)

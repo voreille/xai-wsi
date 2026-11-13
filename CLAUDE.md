@@ -78,6 +78,14 @@ What this means for code written now:
 - `xaiwsi/rna/encoders/bulkformer/`: frozen BulkFormer (vendored upstream model code, kept
   unchanged; our code is in `load.py`/`preprocess.py`/`embed.py`), configs in `configs/rna/`.
   Uses native `torch.sparse` instead of `torch_sparse`; don't add torch-scatter/sparse.
+- Disk layout (2026-11-13, `xaiwsi/paths.py`; build paths with it, not `parent.parent`):
+  `data/processed/<cohort>/` holds data only: `metadata/`, `rna/`, `rna-embeddings/`,
+  `tissue/<store>/<probe>/` (ignite, anorak, tile-qc), `wsi-tiles/<grid>/` (224px, 512px) and
+  `wsi-embeddings/<store>/` (tile stores; slide encoders such as `titan/slides.parquet` too).
+  Fitted models go to `models/<kind>/<store>/<name>/` (sae, panther, tile-pca), slide features
+  computed with them to `outputs/{concept,panther}-bags/<store>/<name>/<cohort>/`, caches to
+  `outputs/cache/<cohort>/`. Probe features: `bags:<sae>/slides_mean`, `panther:<name>/slides_pi`,
+  `table:<path relative to the cohort dir>`.
 - Tile embedding stores: `wsi-embeddings/h-optimus-1/` (original fp32, LZF, tiny chunks)
   and `h-optimus-1-fp16/` (repacked with `wsi-repack`, used by alignment). Alignment
   training caches decoded slides in RAM (`data.cache_tiles`).
@@ -88,7 +96,7 @@ What this means for code written now:
   `TileMLPMean`, `TileMLPGatedMean`, `MeanMLP`). `xaiwsi/models/nca.py`: `TileNCAMean`, a
   neural cellular automaton on the tile grid (fixed PCA projection from `xaiwsi.data.tile_pca`).
 - `xaiwsi/tissue/`: linear tile-composition probes (IGNITE classes, ANORAK patterns) on the
-  frozen tile embeddings, applied per tile to `<cohort dir>/tissue/<probe>/`; `features.py`
+  frozen tile embeddings, applied per tile to `<cohort dir>/tissue/<store>/<probe>/`; `features.py`
   gives slide shares and compartment-weighted pools (`configs/tissue/`).
 - `xaiwsi/metrics/pathways.py`: MSE, zero-baseline skill, per-pathway R² and Spearman.
 - `xaiwsi/training/`: LightningCLI entry point (`cli.py`, data subclass mode),

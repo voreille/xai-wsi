@@ -33,6 +33,7 @@ import pandas as pd
 import yaml
 from scipy.stats import spearmanr
 
+from xaiwsi import paths
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
 from xaiwsi.evaluation.cohort_probe import markdown_table
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
@@ -59,12 +60,12 @@ def case_slides(config: Path, condition: str) -> tuple[dict[tuple[str, str], str
             for case, slide in zip(part.pairs["case_id"].astype(str), part.pairs["slide_id"].astype(str)):
                 pairs[part.cohort, case] = slide
     for spec in train_used + test_used:
-        dirs[spec.name] = spec.resolve(processed_root, embedding).embedding_dir.parent.parent
+        dirs[spec.name] = spec.resolve(processed_root, embedding).embedding_dir
     return pairs, dirs
 
 
-def slide_scores(cohort_dir: Path, sae: str) -> pd.DataFrame:
-    bag_dir = cohort_dir / "concepts" / sae
+def slide_scores(embedding_dir: Path, sae: str) -> pd.DataFrame:
+    bag_dir = paths.bag_dir("concept", embedding_dir, sae)
     scores = pd.read_parquet(bag_dir / "slides.parquet")
     scores.index = scores.index.astype(str)
     residual_path = bag_dir / "slides_residual.parquet"

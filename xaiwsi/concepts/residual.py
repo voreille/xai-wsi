@@ -8,12 +8,12 @@ carries the Hallmark signal and which the cohort shift (README 2f, residual test
 
     uv run python -m xaiwsi.concepts.residual --config configs/training/pathway_cohorts.yaml \\
         --cohorts tcga-luad cptac-luad \\
-        --sae data/processed/sae/h-optimus-1-fp16/tcga-luad_k4096_top32_s0
+        --sae models/sae/h-optimus-1-fp16/tcga-luad_k4096_top32_s0
 
-Needs the bags of the same SAE. Writes under ``<cohort dir>/concepts/<sae name>/``:
+Needs the bags of the same SAE. Writes next to them (``outputs/concept-bags/<store>/<sae name>/<cohort>/``):
 ``slides_recon.parquet`` (``ā D + b_pre``) and ``slides_residual.parquet`` (``r̄``), slide_id x
 ``f<j>``. The slide means of all tiles are cached per cohort in
-``<cohort dir>/concepts/slide_means_<embedding>.parquet`` and shared between SAEs. Fails if
+``outputs/cache/<cohort>/slide_means_<embedding>.parquet`` and shared between SAEs. Fails if
 the reconstruction error disagrees with the one the bags recorded (``slides.parquet``).
 """
 
@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 from wsitools.storage.factory import build_embedding_store_from_dir
 
+from xaiwsi import paths
 from xaiwsi.concepts.bags import embedding_dirs
 from xaiwsi.evaluation.learning_curve import slide_means
 from xaiwsi.models.sae import load_sae
@@ -46,13 +47,12 @@ def main() -> None:
     scale = float(model.input_scale)
 
     for cohort, embedding_dir in embedding_dirs(args.config, args.cohorts).items():
-        concepts_dir = embedding_dir.parent.parent / "concepts"
-        bag_dir = concepts_dir / name
+        bag_dir = paths.bag_dir("concept", embedding_dir, name)
         bags = pd.read_parquet(bag_dir / "slides_mean.parquet")
         bags.index = bags.index.astype(str)
         slide_ids = list(bags.index)
         store = build_embedding_store_from_dir(root_dir=embedding_dir)
-        means = slide_means(store, slide_ids, concepts_dir / f"slide_means_{embedding_dir.name}.parquet")
+        means = slide_means(store, slide_ids, paths.cache_dir(embedding_dir) / f"slide_means_{embedding_dir.name}.parquet")
         x_norm = (means.loc[slide_ids].to_numpy(np.float64) - input_mean) / scale
         recon = bags.to_numpy(np.float64) @ decoder + pre_bias
         residual = x_norm - recon

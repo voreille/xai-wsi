@@ -1,8 +1,8 @@
 """Collect the SAE concept-bag sweep (``scripts/concept_sweep.sh``) or the PANTHER sweep into one table.
 
 Reads ``<sweep-dir>/<name>/probe_metrics.csv`` (``cohort_probe``) and the SAE's
-``train.json`` (``data/processed/sae/<embedding>/<name>/``; with ``--encoder panther`` the
-``prototypes.json`` of ``scripts/panther_sweep.sh`` under ``data/processed/panther/<embedding>/<name>/``),
+``train.json`` (``models/sae/<embedding>/<name>/``; with ``--encoder panther`` the
+``prototypes.json`` of ``scripts/panther_sweep.sh`` under ``models/panther/<embedding>/<name>/``),
 keeps its val and test rows, and writes ``<output>.csv`` and ``<output>.md`` (one row per SAE and
 feature kind and table preprocessing (``--table-min-active``/``--table-transforms``), plus the slide-mean baseline once, with the generating command). Fails on
 out-of-range metrics and on runs whose slide-mean baseline differs (they would not share
@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from xaiwsi import paths
 from xaiwsi.evaluation.cohort_probe import check_ranges, feature_blocks, markdown_table
 
 
@@ -50,14 +51,14 @@ def main() -> None:
     parser.add_argument("--encoder", choices=["sae", "panther"], default="sae")
     parser.add_argument(
         "--sae-root", type=Path, default=None,
-        help="encoder dir (default data/processed/sae/h-optimus-1-fp16, or panther/h-optimus-1-fp16)",
+        help="encoder dir (default models/sae/h-optimus-1-fp16, or models/panther/h-optimus-1-fp16)",
     )
     parser.add_argument("--bags", nargs="+", default=None, help="keep only these bag kinds (mean, frac)")
     parser.add_argument("--preps", nargs="+", default=None, help="keep only these table preprocessings, e.g. min0_clip")
     parser.add_argument("--seeds", type=int, nargs="+", default=None, help="keep only these encoder seeds")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    root = args.sae_root or Path("data/processed") / args.encoder / "h-optimus-1-fp16"
+    root = args.sae_root or paths.model_dir(args.encoder, "h-optimus-1-fp16")
 
     rows, baselines = [], []
     for path in sorted(args.sweep_dir.glob("*/probe_metrics.csv")):

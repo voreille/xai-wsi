@@ -1,12 +1,12 @@
 #!/bin/bash
 # Tile, embed (H-optimus-1) and repack (fp16) the diagnostic slides of one cohort into
-# data/processed/<cohort>/{wsi-tiles,wsi-embeddings/h-optimus-1,wsi-embeddings/h-optimus-1-fp16}.
+# data/processed/<cohort>/{wsi-tiles/<grid>,wsi-embeddings/<model>,wsi-embeddings/<model>-fp16}.
 # Every step skips slides that are already done, so the script can be rerun after a crash.
 #
 # Usage (on the host, from the repo root):
 #   COHORT=tcga-lusc SLIDES=/mnt/nas7/data/TCGA_Lung_svs/LUSC GPU=0 bash scripts/tile_embed_cohort.sh
-#   # CONCH v1.5 on its own 512 px grid (for TITAN), into wsi-tiles-512 and wsi-embeddings/conch-v1.5{,-fp16}:
-#   MODEL=conch-v1.5 TILES_NAME=wsi-tiles-512 TILING_CONFIG=configs/tiling/tiling_512.yaml COHORT=... SLIDES=... \
+#   # CONCH v1.5 on its own 512 px grid (for TITAN), into wsi-tiles/512px and wsi-embeddings/conch-v1.5{,-fp16}:
+#   MODEL=conch-v1.5 TILES_GRID=512px TILING_CONFIG=configs/tiling/tiling_512.yaml COHORT=... SLIDES=... \
 #       bash scripts/tile_embed_cohort.sh
 #   STAGES="embed repack" COHORT=... SLIDES=... bash scripts/tile_embed_cohort.sh
 #   # tile 8 slides in parallel (memory grows with it: one pyramid level per slide):
@@ -28,11 +28,11 @@ STAGES=${STAGES:-"tile embed repack"}
 REPO=${REPO:-/home/valentin/workspaces/xai-wsi}
 TILING_CONFIG=${TILING_CONFIG:-$REPO/configs/tiling/tiling.yaml}
 MODEL=${MODEL:-h-optimus-1}
-TILES_NAME=${TILES_NAME:-wsi-tiles}
+TILES_GRID=${TILES_GRID:-224px}
 BATCH_SIZE=${BATCH_SIZE:-256}
 
 OUT=$REPO/data/processed/$COHORT
-TILES=$OUT/$TILES_NAME
+TILES=$OUT/wsi-tiles/$TILES_GRID
 EMB=$OUT/wsi-embeddings
 mkdir -p "$TILES" "$EMB"
 

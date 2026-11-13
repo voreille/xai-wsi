@@ -14,7 +14,7 @@ the concept bag ā (``slides_mean.parquet``), writes next to it:
         --cohorts tcga-luad cptac-luad --sae tcga-luad+tcga-lusc_k1024_top64_s0 \\
         --profiles outputs/concept_tissue/luad_valpick/concepts.csv --reference tcga-luad
 
-Probe with ``cohort_probe --features table:concepts/<sae>/slides_<kind>.parquet``.
+Probe with ``cohort_probe --features bags:<sae>/slides_<kind>``.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from xaiwsi import paths
 from xaiwsi.concepts.bags import embedding_dirs
 
 
@@ -44,7 +45,7 @@ def main() -> None:
     groups = profiles["dominant"]
     print(groups.value_counts().to_string())
     for cohort, embedding_dir in embedding_dirs(args.config, args.cohorts).items():
-        bag_dir = embedding_dir.parent.parent / "concepts" / args.sae
+        bag_dir = paths.bag_dir("concept", embedding_dir, args.sae)
         bags = pd.read_parquet(bag_dir / "slides_mean.parquet")
         columns = np.array([int(c.removeprefix("c")) for c in bags.columns])
         assigned = groups.loc[columns].to_numpy()

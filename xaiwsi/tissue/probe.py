@@ -21,7 +21,7 @@ Metrics on test:
 - pure tiles (true dominant fraction >= ``--pure``): accuracy and per-class F1 of argmax.
 
     uv run python -m xaiwsi.tissue.probe \\
-        --data-dir data/processed/tissue/ignite/h-optimus-1 \\
+        --data-dir data/processed/ignite/wsi-embeddings/h-optimus-1 \\
         --output-dir outputs/tissue_probe/ignite
 
 Writes ``probe.pt`` (weight, bias, mean, std, classes, settings), ``cv.csv``,

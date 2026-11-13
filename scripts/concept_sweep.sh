@@ -7,8 +7,8 @@
 # and without clipping the bags to their training range and dropping rarely active concepts.
 # Choose settings on TCGA-val only; CPTAC is reported, never used to pick.
 #
-# Names: [<embedding>_]<cohorts>_k<latents>_top<k>_s<seed> (cohorts joined by '+'), SAE under
-# data/processed/sae/<embedding>/<name>/, bags under <cohort dir>/concepts/<name>/, probe under
+# Names: <cohorts>_k<latents>_top<k>_s<seed> (cohorts joined by '+'), SAE under
+# models/sae/<embedding>/<name>/, bags under outputs/concept-bags/<embedding>/<name>/<cohort>/, probe under
 # OUT_ROOT/<name>/. Finished steps are skipped on rerun.
 #
 # Time per job on an H100: about 3 min tile loading, 1-10 min training (K), 5 min bags, 3 min
@@ -28,12 +28,9 @@
 set -euo pipefail
 
 CONFIG=${CONFIG:-configs/training/pathway_cohorts.yaml}
-# The tile store is the config's data.embedding. Runs on another store than H-optimus-1 get its
-# name as a prefix, so their bags (<cohort dir>/concepts/<name>/) don't collide.
+# The tile store is the config's data.embedding; SAEs and bags are kept per store.
 EMBEDDING=$(uv run python -c "import sys, yaml; from xaiwsi.training.run_config import data_args
 print(data_args(yaml.safe_load(open(sys.argv[1])))['embedding'])" "$CONFIG")
-if [[ $EMBEDDING == h-optimus-1-fp16 ]]; then default_prefix=""; else default_prefix="${EMBEDDING}_"; fi
-NAME_PREFIX=${NAME_PREFIX-$default_prefix}
 LATENTS=${LATENTS:-"1024 4096 16384"}
 TOPK=${TOPK:-"16 32 64"}
 TRAIN_COHORT_SETS=${TRAIN_COHORT_SETS:-"tcga-luad tcga-luad,tcga-lusc"}
@@ -51,8 +48,8 @@ mkdir -p "$LOG_DIR"
 
 run_one() {
     local gpu=$1 cohorts=$2 latents=$3 topk=$4 seed=$5
-    local name="${NAME_PREFIX}${cohorts//,/+}_k${latents}_top${topk}_s${seed}"
-    local sae_dir="data/processed/sae/$EMBEDDING/$name"
+    local name="${cohorts//,/+}_k${latents}_top${topk}_s${seed}"
+    local sae_dir="models/sae/$EMBEDDING/$name"
     local probe_dir="$OUT_ROOT/$name"
     if [[ -f "$sae_dir/sae.pt" ]]; then
         echo "skip train $name"
@@ -67,7 +64,7 @@ run_one() {
     fi
     local missing=()
     for cohort in $PROBE_COHORTS; do
-        [[ -f "data/processed/$cohort/concepts/$name/slides_mean.parquet" ]] || missing+=("$cohort")
+        [[ -f "outputs/concept-bags/$EMBEDDING/$name/$cohort/slides_mean.parquet" ]] || missing+=("$cohort")
     done
     if (( ${#missing[@]} == 0 )); then
         echo "skip bags $name"
@@ -88,7 +85,7 @@ run_one() {
         --config "$CONFIG" --conditions "$CONDITION" \
         --table-min-active $TABLE_MIN_ACTIVE --table-transforms $TABLE_TRANSFORMS \
         --features slide-mean \
-            "table:concepts/$name/slides_mean.parquet" "table:concepts/$name/slides_frac.parquet" \
+            "bags:$name/slides_mean" "bags:$name/slides_frac" \
         --output-dir "$probe_dir" > "$LOG_DIR/$name.probe.log" 2>&1 \
         || { echo "FAIL probe $name, see $LOG_DIR/$name.probe.log"; return 1; }
 }

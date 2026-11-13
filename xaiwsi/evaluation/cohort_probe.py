@@ -60,6 +60,7 @@ from xaiwsi.evaluation.geneset_vs_hallmarks import add_axis_scores
 from xaiwsi.evaluation.learning_curve import make_probe, slide_means
 from xaiwsi.evaluation.predictions import prediction_frame
 from xaiwsi.metrics.pathways import compute_pathway_metrics
+from xaiwsi.paths import is_table_block, table_path
 from xaiwsi.qc.mask import keep_mask, load_artifact_probs
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
 from xaiwsi.rna.pathways.tavernari import load_tavernari_signatures
@@ -67,7 +68,7 @@ from xaiwsi.tissue.features import composition_features, load_feature_spec, tiss
 from xaiwsi.training.run_config import data_args
 
 # Blocks are joined by '+'; split only where a known block starts, so table paths may contain '+'.
-BLOCK_SEPARATOR = re.compile(r"\+(?=slide-mean(?:\+|$)|composition(?:\+|$)|table:)")
+BLOCK_SEPARATOR = re.compile(r"\+(?=slide-mean(?:\+|$)|composition(?:\+|$)|table:|bags:|panther:)")
 
 
 def feature_blocks(features: str) -> list[str]:
@@ -275,7 +276,8 @@ def main() -> None:
         "--features",
         nargs="+",
         default=["slide-mean"],
-        help="+-joined blocks: slide-mean, composition, table:<parquet path relative to the cohort dir>",
+        help="+-joined blocks: slide-mean, composition, bags:<sae>/<file>, panther:<name>/<file>, "
+        "table:<parquet path relative to the cohort dir, or to the repo with {cohort}> (xaiwsi.paths.table_path)",
     )
     parser.add_argument(
         "--table-min-active",
@@ -336,11 +338,9 @@ def main() -> None:
 
     for features in args.features:
         for block in feature_blocks(features):
-            if block not in ("slide-mean", "composition") and not block.startswith("table:"):
+            if block not in ("slide-mean", "composition") and not is_table_block(block):
                 raise SystemExit(f"Unknown feature block {block!r} in {features!r}")
-    table_paths = sorted(
-        {b.removeprefix("table:") for f in args.features for b in feature_blocks(f) if b.startswith("table:")}
-    )
+    table_blocks = sorted({b for f in args.features for b in feature_blocks(f) if is_table_block(b)})
     feature_spec = None
     if any("composition" in feature_blocks(f) for f in args.features):
         feature_spec = load_feature_spec(args.composition_spec)
@@ -380,13 +380,14 @@ def main() -> None:
                 )
                 if feature_spec is not None:
                     shares[cohort] = composition_features(tissue_dir(embedding_dir), feature_spec)
-                for path in table_paths:
-                    table = pd.read_parquet(embedding_dir.parent.parent / path)
+                for block in table_blocks:
+                    path = table_path(block, embedding_dir)
+                    table = pd.read_parquet(path)
                     missing = sorted(set(slide_ids) - set(table.index.astype(str)))
                     if missing:
                         raise SystemExit(f"{cohort}: {len(missing)} slides missing from {path}, e.g. {missing[:3]}")
                     table.index = table.index.astype(str)
-                    tables[cohort, path] = table
+                    tables[cohort, block] = table
 
             def targets(part) -> np.ndarray:
                 return part.scores.loc[part.pairs["sample_id"].astype(str), names].to_numpy()
@@ -400,7 +401,7 @@ def main() -> None:
                     elif block == "composition":
                         blocks.append(shares[part.cohort].loc[slide_ids].to_numpy())
                     else:
-                        blocks.append(tables[part.cohort, block.removeprefix("table:")].loc[slide_ids].to_numpy())
+                        blocks.append(tables[part.cohort, block].loc[slide_ids].to_numpy())
                 return blocks
 
             if feature_spec is not None:
@@ -425,7 +426,7 @@ def main() -> None:
 
             y_train = np.concatenate([targets(p) for p in splits["train"]])
             for features in args.features:
-                is_table = [b.startswith("table:") for b in feature_blocks(features)]
+                is_table = [is_table_block(b) for b in feature_blocks(features)]
                 train_blocks = [raw_blocks(p, features) for p in splits["train"]]
                 stacked = [np.concatenate([b[i] for b in train_blocks]) for i in range(len(is_table))]
                 variants = (

@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from xaiwsi import paths
 from xaiwsi.concepts.bags import embedding_dirs
 from xaiwsi.concepts.viz import dense_codes
 from xaiwsi.evaluation.cohort_probe import markdown_table
@@ -48,7 +49,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--cohorts", nargs="+", required=True, help="first one is the reference for consistency")
-    parser.add_argument("--sae", required=True, help="bag folder name under <cohort dir>/concepts/ (with tiles/)")
+    parser.add_argument("--sae", required=True, help="bag name under outputs/concept-bags/<store>/ (with tiles/)")
     parser.add_argument("--tissue-probe", default="ignite")
     parser.add_argument("--purity", type=float, default=0.6, help="dominant-group share to call a concept pure")
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -57,9 +58,8 @@ def main() -> None:
 
     rows, shares = [], {}
     for cohort, embedding_dir in embedding_dirs(args.config, args.cohorts).items():
-        cohort_dir = embedding_dir.parent.parent
-        bag_dir = cohort_dir / "concepts" / args.sae
-        tissue_dir = cohort_dir / "tissue" / args.tissue_probe
+        bag_dir = paths.bag_dir("concept", embedding_dir, args.sae)
+        tissue_dir = paths.tissue_dir(embedding_dir) / args.tissue_probe
         classes = json.loads((tissue_dir / "probe.json").read_text())["classes"]
         to_groups, groups = group_matrix(classes)
         slide_ids = list(pd.read_parquet(bag_dir / "slides_mean.parquet").index.astype(str))

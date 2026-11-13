@@ -1,6 +1,6 @@
 """Slide-level composition features and compartment pools from the applied tile-composition probes.
 
-``xaiwsi.tissue.apply`` writes, per cohort and probe, ``<cohort dir>/tissue/<probe>/slides.parquet``
+``xaiwsi.tissue.apply`` writes, per cohort and probe, ``<cohort dir>/tissue/<store>/<probe>/slides.parquet``
 with the mean class fraction per slide. A feature spec (``configs/tissue/composition_features.yaml``)
 names, per feature, the probe, the classes to sum and optionally the classes to renormalize over.
 """
@@ -13,10 +13,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-
-def tissue_dir(embedding_dir: Path) -> Path:
-    """``<cohort dir>/tissue`` for a store at ``<cohort dir>/wsi-embeddings/<embedding>``."""
-    return Path(embedding_dir).parent.parent / "tissue"
+from xaiwsi.paths import tissue_dir  # noqa: F401 (re-exported)
 
 
 def load_feature_spec(path: Path) -> dict[str, dict]:

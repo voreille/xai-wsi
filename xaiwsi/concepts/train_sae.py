@@ -8,7 +8,7 @@ DataLoader is involved (5.6M TCGA-LUAD training tiles, about 17 GB; LUAD+LUSC 11
 
     uv run python -m xaiwsi.concepts.train_sae --config configs/training/pathway_cohorts.yaml \\
         --train-cohorts tcga-luad --latents 4096 --k 32 \\
-        --output-dir data/processed/sae/h-optimus-1-fp16/tcga-luad_k4096_top32
+        --output-dir models/sae/h-optimus-1-fp16/tcga-luad_k4096_top32
 
 Writes ``sae.pt`` (config, state dict; ``xaiwsi.models.sae.load_sae``), ``metrics.csv`` (per
 epoch: train loss and FVU, val FVU, dead fraction on train and val) and ``train.json``

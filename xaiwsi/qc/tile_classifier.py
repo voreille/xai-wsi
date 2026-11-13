@@ -10,7 +10,7 @@ raw embedding (``w``, ``b``) and saves it.
         --labels configs/qc/tile_artifacts.yaml --output outputs/tile_qc/artifact_classifier.npz
 
 ``score``: artifact probability of every tile of every slide of the given cohorts, saved
-as ``<processed_root>/<cohort>/tile-qc/<embedding>/artifact_prob.npz`` (one float16 array
+as ``<processed_root>/<cohort>/tissue/<embedding>/tile-qc/artifact_prob.npz`` (one float16 array
 per slide id, in the store's tile order), plus ``artifact_summary.csv`` (per slide: tiles,
 fraction above 0.5) and a montage per probability bin of tiles from slides not used for
 training (``<montage-dir>/<cohort>_p<lo>-<hi>.png``) to check the classifier by eye.
@@ -38,6 +38,7 @@ from sklearn.model_selection import GroupKFold
 from wsitools.storage.factory import build_embedding_store_from_dir
 
 from xaiwsi.data.cohorts import CohortSpec
+from xaiwsi.paths import tissue_dir
 from xaiwsi.qc.tile_clusters import pick_spread, render
 from xaiwsi.training.run_config import data_args
 
@@ -170,7 +171,7 @@ def score(args) -> None:
                             }
                         )
                     )
-        out_dir = cohort.embedding_dir.parent.parent / "tile-qc" / embedding
+        out_dir = tissue_dir(cohort.embedding_dir) / "tile-qc"
         out_dir.mkdir(parents=True, exist_ok=True)
         np.savez(out_dir / "artifact_prob.npz", **probs)
         summary = pd.DataFrame(rows)

@@ -2,7 +2,7 @@
 
 TITAN is a pretrained slide encoder (Mass-340K, no TCGA/CPTAC, no RNA), so it is a frozen
 unsupervised slide representation like the slide mean, PANTHER and the SAE concept bags, and
-is probed the same way (``xaiwsi.evaluation.cohort_probe --features table:titan/slides.parquet``).
+is probed the same way (``xaiwsi.evaluation.cohort_probe --features table:wsi-embeddings/titan/slides.parquet``).
 It needs CONCH v1.5 features of 512 px tiles at 20x: the ``conch-v1.5`` encoder of ``wsi-embed``
 on the ``configs/tiling/tiling_512.yaml`` grid (``scripts/tile_embed_cohort.sh``), so the config's
 ``data.embedding`` must be a CONCH v1.5 store (e.g. ``conch-v1.5-fp16``). The tile grid step at
@@ -11,9 +11,10 @@ level 0 (``step_size`` x ``downsample``) is TITAN's ``patch_size_lv0``.
     uv run python -m xaiwsi.concepts.titan --config outputs/conch_titan/config.yaml \\
         --cohorts tcga-luad tcga-lusc cptac-luad cptac-lusc --reference
 
-Writes ``<cohort dir>/titan/slides.parquet`` (slide_id x 768, float32). ``--reference`` compares
+Writes ``<cohort dir>/wsi-embeddings/titan/slides.parquet`` (slide_id x 768, float32), a slide-level
+embedding next to the tile stores. ``--reference`` compares
 the TCGA slides with the embeddings MahmoodLab released (``TCGA_TITAN_features.pkl``, same
-model, their own tiling) and prints the cosine similarity: an end-to-end check of our tiling and
+model, their own tiling) and writes the cosine similarity to ``--check-dir``: an end-to-end check of our tiling and
 CONCH features, expected close to but below 1 since the tile grids differ.
 """
 
@@ -29,6 +30,7 @@ import torch
 from tqdm import tqdm
 from wsitools.storage.factory import build_embedding_store_from_dir
 
+from xaiwsi import paths
 from xaiwsi.concepts.bags import embedding_dirs
 
 REPO = "MahmoodLab/TITAN"
@@ -75,12 +77,13 @@ def main() -> None:
     parser.add_argument("--config", type=Path, help="config whose data.embedding is a CONCH v1.5 store (for cohorts by name)")
     parser.add_argument("--cohorts", nargs="+", required=True, help="<name> from --config, or <name>=<embedding dir>")
     parser.add_argument("--reference", action="store_true", help="compare TCGA slides with the released TITAN embeddings")
+    parser.add_argument("--check-dir", type=Path, default=Path("outputs/titan_check"), help="for <cohort>_reference_cosine.csv")
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_titan(device)
 
     for cohort, embedding_dir in embedding_dirs(args.config, args.cohorts).items():
-        out_dir = embedding_dir.parent.parent / "titan"
+        out_dir = paths.slide_embedding_dir(embedding_dir, "titan")
         out_dir.mkdir(parents=True, exist_ok=True)
         store = build_embedding_store_from_dir(root_dir=embedding_dir)
         rows = {}
@@ -102,7 +105,8 @@ def main() -> None:
             if len(cos):
                 print(f"[{cohort}] cosine vs released TITAN embeddings, {len(cos)} slides: "
                       f"median {cos.median():.4f}, 5th percentile {cos.quantile(0.05):.4f}, min {cos.min():.4f}")
-                cos.rename("cosine").to_csv(out_dir / "reference_cosine.csv")
+                args.check_dir.mkdir(parents=True, exist_ok=True)
+                cos.rename("cosine").to_csv(args.check_dir / f"{cohort}_reference_cosine.csv")
 
 
 if __name__ == "__main__":

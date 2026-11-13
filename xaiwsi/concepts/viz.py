@@ -45,6 +45,7 @@ from PIL import Image, ImageDraw
 from scipy.stats import spearmanr
 from tqdm import tqdm
 
+from xaiwsi import paths
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
 from xaiwsi.evaluation.cohort_probe import TablePrep
 from xaiwsi.evaluation.geneset_vs_hallmarks import add_axis_scores
@@ -76,7 +77,7 @@ def top_tiles(bag_dir: Path, slide_ids: list[str], concepts: list[int], n: int) 
     """Per concept, the n most activated tiles over the slides, at most one per slide."""
     best: dict[int, list] = {c: [] for c in concepts}
     wanted = np.array(concepts)
-    for slide_id in tqdm(slide_ids, desc=bag_dir.parent.parent.name):
+    for slide_id in tqdm(slide_ids, desc=bag_dir.name):
         codes = np.load(bag_dir / "tiles" / f"{slide_id}.npz")
         indices, values = codes["indices"].astype(np.int64), codes["values"].astype(np.float32)
         for c in wanted:
@@ -175,13 +176,13 @@ def main() -> None:
     cohorts = {}
     for spec in train_used + test_used:
         resolved = spec.resolve(processed_root, embedding)
-        cohort_dir = resolved.embedding_dir.parent.parent
-        bags = pd.read_parquet(cohort_dir / "concepts" / args.sae / "slides_mean.parquet")
+        bag_dir = paths.bag_dir("concept", resolved.embedding_dir, args.sae)
+        bags = pd.read_parquet(bag_dir / "slides_mean.parquet")
         bags.index = bags.index.astype(str)
         cohorts[spec.name] = {
             "embedding_dir": resolved.embedding_dir,
             "slides_root": Path(spec.slides_root_dir),
-            "bag_dir": cohort_dir / "concepts" / args.sae,
+            "bag_dir": bag_dir,
             "bags": bags,
         }
 

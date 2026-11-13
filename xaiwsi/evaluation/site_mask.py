@@ -9,12 +9,13 @@ cohort that uses it as z-score reference. Baseline for the concept bags: EXPOSE 
 matched control.
 
     uv run python -m xaiwsi.evaluation.site_mask --config configs/training/pathway_cohorts.yaml \\
-        --cohort tcga-luad --tables concepts/<sae>/slides_mean.parquet \\
-        concepts/slide_means_h-optimus-1-fp16.parquet --fractions 0.05 0.1 0.25
+        --cohort tcga-luad --tables bags:<sae>/slides_mean \\
+        'table:outputs/cache/{cohort}/slide_means_h-optimus-1-fp16.parquet' --fractions 0.05 0.1 0.25
 
-Writes ``<table stem>_sitemask<fraction>.parquet`` next to each table (in every cohort dir), and
-``<table stem>_sitemask.csv`` in the training cohort's dir (F per column, rank). Probe the
-masked tables with ``xaiwsi.evaluation.cohort_probe --features table:<masked path>``.
+Tables are ``cohort_probe`` feature blocks (``xaiwsi.paths.table_path``). Writes
+``<table stem>_sitemask<fraction>.parquet`` next to each cohort's table, and
+``<table stem>_sitemask.csv`` next to the training cohort's (F per column, rank). Probe the
+masked tables with ``cohort_probe --features bags:<sae>/slides_mean_sitemask0.1`` (or ``table:...``).
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from sklearn.feature_selection import f_classif
 
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
 from xaiwsi.evaluation.shared_structure import tcga_site
+from xaiwsi.paths import table_path
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
 from xaiwsi.training.run_config import data_args
 
@@ -37,7 +39,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--cohort", required=True, help="a TCGA training cohort of the config")
-    parser.add_argument("--tables", nargs="+", required=True, help="parquet paths relative to the cohort dirs")
+    parser.add_argument("--tables", nargs="+", required=True, help="cohort_probe table blocks (bags:..., table:...)")
     parser.add_argument("--fractions", type=float, nargs="+", default=[0.05, 0.1, 0.25])
     parser.add_argument("--min-site-cases", type=int, default=10)
     args = parser.parse_args()
@@ -62,24 +64,25 @@ def main() -> None:
     slide_ids = pairs["slide_id"].astype(str).to_numpy()[keep]
     sites = sites[keep]
     print(f"{args.cohort} train: {keep.sum()} cases from {len(set(sites))} sites with >= {args.min_site_cases} cases")
-    cohort_dirs = [s.resolve(processed_root, embedding).embedding_dir.parent.parent for s in train_used + test_used]
+    stores = [s.resolve(processed_root, embedding).embedding_dir for s in train_used + test_used]
 
-    for path in args.tables:
-        table = pd.read_parquet(cohort_dirs[0] / path)
+    for block in args.tables:
+        path = table_path(block, stores[0])
+        table = pd.read_parquet(path)
         table.index = table.index.astype(str)
         f_stat, _ = f_classif(table.loc[slide_ids].to_numpy(np.float64), sites)
         f_stat = np.nan_to_num(f_stat, nan=0.0)  # constant columns carry no site signal
         order = np.argsort(-f_stat, kind="stable")
-        stem = Path(path).with_suffix("")
         scores = pd.DataFrame({"column": table.columns[order], "f": f_stat[order], "rank": np.arange(len(order))})
-        scores.to_csv(cohort_dirs[0] / f"{stem}_sitemask.csv", index=False)
+        scores.to_csv(path.with_name(f"{path.stem}_sitemask.csv"), index=False)
         for fraction in args.fractions:
             dropped = set(table.columns[order[: round(fraction * len(order))]])
             kept = [c for c in table.columns if c not in dropped]
-            for cohort_dir in cohort_dirs:
-                frame = pd.read_parquet(cohort_dir / path)[kept]
-                frame.to_parquet(cohort_dir / f"{stem}_sitemask{fraction:g}.parquet")
-            print(f"{path}: dropped {len(dropped)}/{len(order)} columns at {fraction:g} (F >= {f_stat[order][len(dropped) - 1]:.2f})")
+            for store in stores:
+                cohort_path = table_path(block, store)
+                frame = pd.read_parquet(cohort_path)[kept]
+                frame.to_parquet(cohort_path.with_name(f"{cohort_path.stem}_sitemask{fraction:g}.parquet"))
+            print(f"{block}: dropped {len(dropped)}/{len(order)} columns at {fraction:g} (F >= {f_stat[order][len(dropped) - 1]:.2f})")
 
 
 if __name__ == "__main__":

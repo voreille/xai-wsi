@@ -28,29 +28,31 @@ xai-wsi/
 │   └── training/
 │       └── pathway_baseline.yaml
 │
-├── models/
-│   └── external/bulkformer/   # weights + gene graph (gitignored)
+├── models/                    # fitted / downloaded models (gitignored)
+│   ├── external/bulkformer/   # weights + gene graph
+│   ├── sae/<store>/<name>/    # TopK SAEs (xaiwsi.concepts.train_sae)
+│   ├── panther/<store>/<name>/
+│   └── tile-pca/<store>/
 │
-├── data/
+├── data/                      # data only (gitignored); layout in xaiwsi/paths.py
 │   ├── raw/
-│   │   ├── tcga-luad-rna/
-│   │   └── cptac-luad-rna/
-│   ├── external/
-│   │   ├── msigdb/
-│   │   └── tcga-cdr/
+│   ├── external/              # msigdb, tcga-cdr, ...
 │   └── processed/
-│       ├── tcga-luad/
+│       ├── <cohort>/          # tcga-luad, tcga-lusc, tcga-brca, cptac-luad, cptac-lusc, dhmc-luad
 │       │   ├── metadata/
-│       │   ├── rna/
-│       │   ├── rna-embeddings/
-│       │   ├── wsi-tiles/
+│       │   ├── rna/, rna-embeddings/
+│       │   ├── tissue/<store>/{ignite,anorak,tile-qc}/   # per-tile predictions on a store
+│       │   ├── wsi-tiles/{224px,512px}/                  # tiling stores per grid
 │       │   └── wsi-embeddings/
-│       └── cptac-luad/
-│           ├── metadata/
-│           ├── rna/
-│           ├── rna-embeddings/
-│           ├── wsi-tiles/
-│           └── wsi-embeddings/
+│       │       ├── h-optimus-1/, h-optimus-1-fp16/       # tile stores (fp32 original, fp16 repack)
+│       │       ├── conch-v1.5/, conch-v1.5-fp16/         # 512px grid
+│       │       └── titan/slides.parquet                  # slide-level embeddings
+│       └── ignite/, anorak/   # embedded reference tiles of the tissue probes
+│
+├── outputs/                   # results and derived features (gitignored)
+│   ├── concept-bags/<store>/<sae>/<cohort>/
+│   ├── panther-bags/<store>/<name>/<cohort>/
+│   └── cache/<cohort>/        # slide-mean caches
 │
 └── xaiwsi/
     ├── data/
@@ -300,7 +302,7 @@ WSI tiling and embedding are performed with `wsitools`.
 ```bash
 wsi-tile \
     --source /path/to/slides \
-    --output data/processed/tcga-luad/wsi-tiles \
+    --output data/processed/tcga-luad/wsi-tiles/224px \
     --config configs/tiling/tiling.yaml \
     --rglob-str "*DX*.svs" \
     --auto-skip
@@ -309,7 +311,7 @@ wsi-tile \
 Typical tiling-store outputs include:
 
 ```text
-wsi-tiles/
+wsi-tiles/224px/
 ├── .tiling_store.json
 ├── masks/
 ├── patches_json/
@@ -348,7 +350,7 @@ Example with H-optimus-1:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 wsi-embed \
-    --tiles-rootdir data/processed/tcga-luad/wsi-tiles \
+    --tiles-rootdir data/processed/tcga-luad/wsi-tiles/224px \
     --slides-rootdir /path/to/slides \
     --model-name h-optimus-1 \
     --output-dir data/processed/tcga-luad/wsi-embeddings/h-optimus-1 \

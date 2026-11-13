@@ -46,13 +46,18 @@ from scipy.stats import spearmanr
 from tqdm import tqdm
 from wsitools.storage.factory import build_embedding_store_from_dir
 
+from xaiwsi import paths
 from xaiwsi.concepts.panther import Projection
-from xaiwsi.concepts.viz import read_tiles, tile_layout, tile_panel, tile_scores
+from xaiwsi.concepts.viz import read_tiles, tile_panel, tile_scores
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
 from xaiwsi.evaluation.learning_curve import make_probe
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
 from xaiwsi.training.run_config import data_args
-from xaiwsi.visualization.pathways import load_thumbnail, rasterize_tile_values_to_thumbnail, render_heatmap_overlay
+from xaiwsi.visualization.pathways import (
+    load_thumbnail,
+    rasterize_tile_values_to_thumbnail,
+    render_heatmap_overlay,
+)
 
 
 def prototype_colors(n: int) -> np.ndarray:
@@ -133,7 +138,7 @@ def main() -> None:
     cohorts = {}
     for spec in train_used + test_used:
         resolved = spec.resolve(processed_root, embedding)
-        run_dir = resolved.embedding_dir.parent.parent / "panther" / args.panther
+        run_dir = paths.bag_dir("panther", resolved.embedding_dir, args.panther)
         tables = {}
         for kind in ("pi", "pimu"):
             frame = pd.read_parquet(run_dir / f"slides_{kind}.parquet")

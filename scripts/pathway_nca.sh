@@ -34,7 +34,7 @@ BASELINE_TAG=${BASELINE_TAG:-1024}
 PAIRS=${PAIRS:-"tilemean:t0 t0:t16 t0:t16shuf t0:t32 t0:t16lp tilemean:t16lp t0lp:t16lp t16lp:t16lpshuf tilemean:t0lp t0lr3:t16lr3 t16lr3:t16shuflr3 t0:t0lr3 tilemean:t0lr3 tilemean:t16lr3"}
 RUN_ROOT=${RUN_ROOT:-runs/pathways/xai-wsi}
 OUT=${OUT:-outputs/nca_runs}
-PCA=${PCA:-data/processed/tile-pca/h-optimus-1-fp16/tcga-luad_pca64.npz}
+PCA=${PCA:-models/tile-pca/h-optimus-1-fp16/tcga-luad_pca64.npz}
 CONFIG=configs/training/pathway_cohorts.yaml
 
 if [[ ! -f "$PCA" ]]; then

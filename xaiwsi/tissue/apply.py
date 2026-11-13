@@ -35,6 +35,7 @@ import yaml
 from wsitools.storage.factory import build_embedding_store_from_dir
 
 from xaiwsi.data.cohorts import CohortSpec
+from xaiwsi.paths import tissue_dir
 from xaiwsi.training.run_config import data_args
 
 
@@ -93,7 +94,7 @@ def main() -> None:
     probe = CompositionProbe(args.probe, device)
 
     for name, embedding_dir in embedding_dirs.items():
-        out_dir = embedding_dir.parent.parent / "tissue" / args.name
+        out_dir = tissue_dir(embedding_dir) / args.name
         (out_dir / "tiles").mkdir(parents=True, exist_ok=True)
         store = build_embedding_store_from_dir(root_dir=embedding_dir)
         rows, skipped = [], []

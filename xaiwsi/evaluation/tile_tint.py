@@ -46,6 +46,7 @@ from xaiwsi.concepts.viz import dense_codes
 from xaiwsi.data.cohorts import CohortSpec, build_pathway_splits, select_cohorts
 from xaiwsi.evaluation.cohort_probe import TablePrep, markdown_table
 from xaiwsi.evaluation.learning_curve import make_probe
+from xaiwsi.paths import bag_dir, tissue_dir
 from xaiwsi.rna.pathways.hallmarks import load_hallmarks
 from xaiwsi.training.run_config import data_args
 
@@ -109,7 +110,7 @@ def main() -> None:
     for spec in train_used + test_used:
         resolved = spec.resolve(processed_root, embedding)
         dirs[spec.name] = resolved.embedding_dir
-        bag_dirs[spec.name] = resolved.embedding_dir.parent.parent / "concepts" / args.sae
+        bag_dirs[spec.name] = bag_dir("concept", resolved.embedding_dir, args.sae)
         bag = pd.read_parquet(bag_dirs[spec.name] / "slides_mean.parquet")
         bag.index = bag.index.astype(str)
         bags[spec.name] = bag
@@ -129,7 +130,7 @@ def main() -> None:
         "slide-mean": make_probe().fit(means[train.cohort].loc[ids].to_numpy(), y_train),
     }
     n_latents = bags[train.cohort].shape[1]
-    tissue_dirs = {name: d.parent.parent / "tissue" / args.tissue_probe for name, d in dirs.items()}
+    tissue_dirs = {name: tissue_dir(d) / args.tissue_probe for name, d in dirs.items()}
     classes = json.loads((tissue_dirs[train.cohort] / "probe.json").read_text())["classes"]
     group_matrix = np.zeros((len(classes), len(TISSUE_GROUPS)))
     for g, members in enumerate(TISSUE_GROUPS.values()):

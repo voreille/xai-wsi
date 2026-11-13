@@ -320,6 +320,23 @@ wsi-tiles/224px/
 └── tiling_manifest.yaml
 ```
 
+Per-slide fixes live in the output's `tiling_jobs.yaml` (edit a slide's `config`, rerun with
+`--auto-skip`). They are not carried over to a new grid: copy them by hand (done for 10
+CPTAC-LSCC slides, `a_t: 25`, on the 512px grid, 2026-11-13).
+
+**TODO (after the 4 Dec deadline): untiled slides with RNA.** 13 slides were never tiled on
+either grid ("no tissue found" with `a_t: 100`): TCGA-LUAD `TCGA-55-8207-01Z-00-DX1`, and 12
+CPTAC-LUAD slides of 9 cases (C3L-02508-21, C3L-02559-21, C3L-03262-21/22/23, C3N-00959-23,
+C3N-01799-21/22, C3N-02290-21, C3N-02451-22, C3N-02672-22, C3N-04176-27). All their cases have RNA;
+5 cases are missing from the analysis (TCGA-55-8207, C3L-02559, C3L-03262, C3N-01799,
+C3N-04176), and 2 others would switch to the recovered slide (first slide by ID).
+- `a_t: 25` tiles 12 of the 13 (C3N-00959-23 still finds no tissue); the masks show real tissue,
+  some of it large, so check why `a_t: 100` dropped it (wsi-tools TODO).
+- Slide sets are frozen for the paper (identical for H-optimus-1 and CONCH v1.5; decisions log
+  2026-11-13). Recovering them changes the TCGA-LUAD case list, hence the train/val split, and
+  CPTAC-LUAD test n 213 → 217, so every LUAD-side result has to be rerun: do it once, with the
+  per-slide overrides kept in a versioned file (wsi-tools TODO), for both tile encoders.
+
 ## Embedding extraction
 
 ### Repacked fp16 stores

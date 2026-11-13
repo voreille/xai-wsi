@@ -4091,6 +4091,11 @@ Overall survival (C-index, 95% CI):
 
 ## Decisions log
 
+- **2026-11-13:** slide sets frozen for the MIDL paper: the 13 slides that were never tiled
+  (1 TCGA-LUAD, 12 CPTAC-LUAD; 5 RNA-paired cases missing) stay out until after 4 Dec.
+  Recovering them changes the TCGA-LUAD split and the CPTAC-LUAD test set (213 → 217), so all
+  LUAD-side results would move; both tile encoders use the same slides (README "Tiling" TODO).
+  CPTAC-LSCC was completed on CONCH v1.5 instead (10 slides with `a_t: 25`, as on H-optimus-1).
 - **2026-11-12:** concept screening by target relevance is dropped from the 2f protocol for
   now: neutral on LUAD (val keeps all concepts), helps on LSCC only as general regularisation
   (val rises too), and it adds a val-tuned knob. L1 probes lose to ridge. Revisit selection with

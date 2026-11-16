@@ -288,8 +288,9 @@ python -m xaiwsi.preprocessing.cptac.clinical \
 ```
 
 Current coverage of the WSI+RNA paired cases with usable OS: TCGA-LUAD 465 (163 events),
-CPTAC-LUAD 203 (54 events). A few cases have `os_time <= 0`; survival models should
-drop or offset them.
+CPTAC-LUAD 203 (54 events). LSCC (2026-11-16, same commands with `--cancer-type LUSC` and the
+`cptac-lusc` metadata): TCGA-LUSC 460 (197 events), CPTAC-LSCC 102 (32 events). A few cases have
+`os_time <= 0`; survival models should drop or offset them.
 
 ---
 
@@ -1188,7 +1189,9 @@ about 380 training cases.
   concepts (compare with the CCA axes of 2c, e.g. the mucinous axis 3).
 - **Hybrid, if both arms justify it:** SAE concepts as PANTHER components, i.e.
   concept-gated means for a few selected concepts.
-- **TODO: CCA of concept bags vs BulkFormer (2026-11-12).** Same protocol as the slide-mean
+- **CCA of concept bags vs BulkFormer (2026-11-12; first part done 2026-11-16, progress 2f
+  "Where the concept gain sits": `cca_decomposition --features bags:...`; the bag gain passes
+  through the first 5 RNA-shared axes; open: site share reading and the mucinous axis).** Same protocol as the slide-mean
   CCA of 2c (`cca_decomposition`, `cca_hallmarks`, `cca_axis_labels`), with the slide side
   replaced by the clipped concept bag of the LUAD val-picked SAE (LUAD+LUSC k1024 top64).
   Fit on TCGA-train pairs; at test only the slide side is used, so it stays deployable.
@@ -1221,11 +1224,8 @@ about 380 training cases.
   two phases, prediction committed before the CPTAC test. Bags +0.050 [−0.007, 0.102] over
   the UNI2-h slide mean on CPTAC-LUAD (inconclusive by the pre-declared rule), +0.015 on
   CPTAC-LSCC.
-  - **TODO: seeds 1–4 of the UNI2-h val picks** (LUAD k16384 top32, LSCC k1024 top32), as
-    done for H-optimus-1, reported as a follow-up and not as the prediction test. Host:
-    `GPUS="0 1" STAGES=sweep LATENTS=16384 TOPK=32 SEEDS="1 2 3 4" bash scripts/encoder_rerun.sh`
-    and `LATENTS=1024 TOPK=32` likewise; the script's bootstrap stage globs `_s0` only, so
-    bootstrap the 5 seeds by hand (`..._k16384_top32_s*` against the UNI2-h slide mean).
+  - Seeds 1–4 of the UNI2-h val picks (done 2026-11-16, progress 2f UNI2-h): 5-seed val pick
+    +0.062 [−0.001, 0.119] on CPTAC-LUAD (all seeds above the slide mean), +0.007 on CPTAC-LSCC.
 
 **Concept ↔ outcome reading (survival).** OS is an RNA-independent label not used so far.
 TCGA-LUAD has 188 OS events (about 130 in the training split), CPTAC-LUAD 57.

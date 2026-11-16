@@ -1217,6 +1217,15 @@ about 380 training cases.
   - Optional, not started: text names for SAE concepts. CONCH v1.5 has no released text
     tower; CONCH v1 (gated, tile-level image–text) could score each concept's top tiles
     against prompts, and TITAN's text encoder works at slide level only.
+- **Third tile encoder, UNI2-h (2026-11-14, done; docs/progress.md).** `scripts/encoder_rerun.sh`,
+  two phases, prediction committed before the CPTAC test. Bags +0.050 [−0.007, 0.102] over
+  the UNI2-h slide mean on CPTAC-LUAD (inconclusive by the pre-declared rule), +0.015 on
+  CPTAC-LSCC.
+  - **TODO: seeds 1–4 of the UNI2-h val picks** (LUAD k16384 top32, LSCC k1024 top32), as
+    done for H-optimus-1, reported as a follow-up and not as the prediction test. Host:
+    `GPUS="0 1" STAGES=sweep LATENTS=16384 TOPK=32 SEEDS="1 2 3 4" bash scripts/encoder_rerun.sh`
+    and `LATENTS=1024 TOPK=32` likewise; the script's bootstrap stage globs `_s0` only, so
+    bootstrap the 5 seeds by hand (`..._k16384_top32_s*` against the UNI2-h slide mean).
 
 **Concept ↔ outcome reading (survival).** OS is an RNA-independent label not used so far.
 TCGA-LUAD has 188 OS events (about 130 in the training split), CPTAC-LUAD 57.

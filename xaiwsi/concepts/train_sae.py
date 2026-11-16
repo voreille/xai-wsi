@@ -15,6 +15,11 @@ v1.5): regularised ZCA ``W = V diag((λ + e·mean(λ))^-1/2) V^T`` from the cova
 same training-tile sample as the mean and scale, so directions of low variance are no longer
 negligible in the reconstruction loss. Still an affine map, so slide means stay linear in ā.
 
+``--dictionary pca`` (with ``--epochs 0``) is a fixed-basis control for concept reading: the
+K directions are the top K/2 principal components of the normalised training-tile sample with
+both signs (``+v``, ``-v``), tied encoder, zero biases, same top-k. With ReLU and top-k this is
+a sign-split PCA code in the same format as a trained SAE.
+
 Writes ``sae.pt`` (config, state dict; ``xaiwsi.models.sae.load_sae``), ``metrics.csv`` (per
 epoch: train loss and FVU, val FVU, dead fraction on train and val) and ``train.json``
 (settings, slides, final metrics).
@@ -87,9 +92,15 @@ def main() -> None:
     parser.add_argument(
         "--whiten-eps", type=float, default=None, help="ZCA-whiten inputs, ridge = eps * mean eigenvalue"
     )
+    parser.add_argument(
+        "--dictionary", choices=["learned", "pca"], default="learned",
+        help="pca: fixed sign-split PCA directions (control; needs --epochs 0)",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
+    if args.dictionary == "pca" and (args.epochs != 0 or args.latents % 2):
+        parser.error("--dictionary pca needs --epochs 0 and an even --latents")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     torch.manual_seed(args.seed)
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -140,6 +151,20 @@ def main() -> None:
     # One global scale so that E||x_norm||^2 = D (Gao et al.); affine, keeps slide means linear.
     scale = math.sqrt(centred.pow(2).sum(1).mean().item() / x_train.shape[1])
     model.set_input_stats(mean, scale, **whiten_stats)
+    if args.dictionary == "pca":
+        x_norm = centred / scale
+        _, singular, vh = torch.linalg.svd(x_norm.double(), full_matrices=False)
+        half = args.latents // 2
+        if half > len(singular):
+            raise ValueError(f"--latents {args.latents} needs {half} PCs, input has {len(singular)}")
+        directions = torch.cat([vh[:half], -vh[:half]]).float()
+        with torch.no_grad():
+            model.decoder.copy_(directions)
+            model.encoder.weight.copy_(directions)
+            model.encoder.bias.zero_()
+            model.pre_bias.zero_()
+        explained = (singular[:half] ** 2).sum() / (singular**2).sum()
+        print(f"pca dictionary: {half} PCs x 2 signs, {explained.item():.3f} of the sample variance")
     del sample, centred
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=6.25e-10)
     steps_per_epoch = math.ceil(len(x_train) / args.batch_size)

@@ -118,7 +118,16 @@ def main() -> None:
         .agg(concepts=("concept", "size"), pure=("pure", "sum"), median_purity=("purity", "median"))
         .reset_index()
     )
-    lines = [markdown_table(counts)]
+    enrichment = table.filter(like="enrich_").max(axis=1)
+    overall = (
+        table.assign(max_enrichment=enrichment)
+        .groupby("cohort", sort=False)
+        .agg(concepts=("concept", "size"), pure=("pure", "sum"), median_purity=("purity", "median"),
+             median_max_enrichment=("max_enrichment", "median"))
+        .reset_index()
+    )
+    lines = [markdown_table(counts), f"All concepts (max enrichment = largest group share / cohort tile share of that group):\n\n"
+             f"{markdown_table(overall)}"]
     if len(consistency):
         summary = consistency.groupby("cohort").agg(
             median_profile_r=("profile_r", "median"), same_dominant=("same_dominant", "mean")

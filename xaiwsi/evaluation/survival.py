@@ -158,6 +158,9 @@ def main() -> None:
             cov = zscore(parts[key][0][["stage_num", "age"]].to_numpy(float))
             res = []
             for j in range(len(columns)):
+                if x[:, j].std() == 0:  # e.g. never active on a test cohort: not testable there
+                    res.append((np.nan,) * 4)
+                    continue
                 fit = cox_fit(np.column_stack([zscore(x[:, j]), cov]), time, event)
                 res.append((fit.beta[0], fit.se[0], fit.z[0], fit.p[0]))
             fits[key] = np.array(res)
@@ -170,12 +173,15 @@ def main() -> None:
                                     "q_train": q_train[j]})
         hits = q_train < args.fdr
         for key in test_keys:
+            # Hits that are constant on the test cohort count as not replicated.
             same = np.sign(fits[key][hits, 0]) == np.sign(fits[train_key][hits, 0])
+            finite = np.isfinite(fits[key][:, 2])
             replication.append({
-                "features": label, "cohort": key[1], "tested": len(columns), "train_fdr_hits": int(hits.sum()),
+                "features": label, "cohort": key[1], "tested": len(columns),
+                "constant_on_test": int((~finite).sum()), "train_fdr_hits": int(hits.sum()),
                 "same_sign": same.mean() if hits.any() else np.nan,
                 "same_sign_p05": (same & (fits[key][hits, 3] < 0.05)).mean() if hits.any() else np.nan,
-                "z_corr_all": np.corrcoef(fits[train_key][:, 2], fits[key][:, 2])[0, 1],
+                "z_corr_all": np.corrcoef(fits[train_key][finite, 2], fits[key][finite, 2])[0, 1],
             })
     per_feature = pd.DataFrame(per_feature)
     replication = pd.DataFrame(replication)

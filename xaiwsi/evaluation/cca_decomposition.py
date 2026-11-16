@@ -35,13 +35,22 @@ each tile gets s_i = a_k . (t_i standardized) with mean_i s_i = u_k exactly; the
 ``--map-slides`` highest and lowest slides of TCGA val per axis are drawn for
 ``--map-axes`` (needs the WSIs; ``--map-axes`` with no values skips the maps).
 
+``--features bags:<sae>/slides_mean`` (any ``table:`` block) replaces the slide mean on the slide
+side by that table (clipped to its training range, then standardised with TCGA-train stats, as
+in ``cohort_probe``); it still runs through the PCA of ``--pca-dim``. Tile maps then need
+``--map-axes`` with no values. ``slide_loadings.csv`` gives the structure coefficients of the
+slide side: per column and axis, the TCGA-train correlation between the column and the slide
+score u_k of the BulkFormer CCA (for concept bags: which concepts make up each axis).
+``predictions/ridge.parquet`` holds the full-table ridge, for paired bootstraps against the
+K-axis routes.
+
     uv run python -m xaiwsi.evaluation.cca_decomposition \\
         --config configs/training/alignment_baseline.yaml \\
         --pathway-config configs/training/pathway_cohorts.yaml \\
         --slide-means-dir outputs/cohort_probe --output-dir outputs/cca_decomposition
 
 Writes ``shares.csv`` (method, K, split, pathway: r2, spearman), ``spectrum.csv``,
-``intervals.csv``, ``axis_site.csv``, ``predictions/<method>_k<K>.parquet``, ``maps/`` and
+``intervals.csv``, ``axis_site.csv``, ``slide_loadings.csv``, ``predictions/<method>_k<K>.parquet``, ``maps/`` and
 ``cca_decomposition.md``.
 """
 
@@ -58,13 +67,28 @@ import yaml
 from scipy.stats import norm, spearmanr
 
 from xaiwsi.evaluation.cca_hallmarks import SPLIT_NAMES, hallmark_targets
-from xaiwsi.evaluation.cohort_probe import markdown_table
+from xaiwsi.evaluation.cohort_probe import TablePrep, markdown_table
 from xaiwsi.evaluation.learning_curve import make_probe
 from xaiwsi.evaluation.predictions import prediction_frame
 from xaiwsi.evaluation.shared_structure import SPLITS, LinearCCA, check_ranges, load_frozen, tcga_site
+from xaiwsi.paths import is_table_block, table_path
 from xaiwsi.training.run_config import data_args
 
-COHORT = {"val": "tcga-luad", "test": "cptac-luad"}
+
+def table_features(splits: dict, block: str) -> list[str]:
+    """Replace each split's standardised slide means by the table ``block`` (clip, then standardise
+    on train). Returns the kept column names."""
+    raw = {}
+    for split in SPLITS:
+        table = pd.read_parquet(table_path(block, splits[split]["embedding_dir"]))
+        table.index = table.index.astype(str)
+        raw[split] = table.loc[splits[split]["pairs"]["slide_id"].astype(str)].to_numpy(np.float64)
+    prep = TablePrep(raw["train"], 0.0, "clip")
+    x = {s: prep(raw[s]) for s in SPLITS}
+    mean, std = x["train"].mean(0), x["train"].std(0) + 1e-8
+    for split in SPLITS:
+        splits[split]["x"] = (x[split] - mean) / std
+    return list(table.columns[prep.keep])
 
 
 def column_r(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -186,13 +210,21 @@ def main() -> None:
     )
     parser.add_argument("--top", type=int, default=12, help="Hallmarks shown per end of the per-pathway table")
     parser.add_argument("--slide-means-dir", type=Path, help="slide-mean parquet cache (default: output dir)")
+    parser.add_argument("--features", default="slide-mean", help="slide side: slide-mean or a table block (bags:...)")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
+    if args.features != "slide-mean":
+        if not is_table_block(args.features):
+            raise SystemExit(f"Unknown feature block {args.features!r}")
+        if args.map_axes:
+            raise SystemExit("tile maps need slide means; pass --map-axes with no values")
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "predictions").mkdir(exist_ok=True)
 
     data = data_args(yaml.safe_load(args.config.read_text()))
     splits = load_frozen(data, args.slide_means_dir or args.output_dir)
+    columns = None if args.features == "slide-mean" else table_features(splits, args.features)
+    cohort_of = {"val": args.train_cohort, "test": args.test_cohort}
     targets, names = hallmark_targets(args.pathway_config, args.train_cohort, args.test_cohort)
     h = {}
     for split in SPLITS:
@@ -209,8 +241,12 @@ def main() -> None:
     z_crit = norm.ppf(1 - args.alpha / 2)
 
     ridge = make_probe().fit(x["train"], h["train"])
+    frames = []
     for split in ("val", "test"):
         rows += pathway_rows("ridge", 0, split, h[split], ridge.predict(x[split]), names)
+        frames.append(prediction_frame(splits[split]["pairs"]["case_id"].astype(str), cohort_of[split], split,
+                                       h[split], ridge.predict(x[split]), names))
+    pd.concat(frames, ignore_index=True).to_parquet(args.output_dir / "predictions" / "ridge.parquet")
     sites = np.concatenate([tcga_site(splits[s]["pairs"]["case_id"]).to_numpy() for s in ("train", "val")])
 
     fits = {}
@@ -262,7 +298,7 @@ def main() -> None:
             for split in ("val", "test"):
                 rows += pathway_rows(f"cca-{label}", k, split, h[split], predict[split], names)
                 rows += pathway_rows(f"shared-{label}", k, split, h[split], shared[split], names)
-                frames.append(prediction_frame(splits[split]["pairs"]["case_id"].astype(str), COHORT[split], split,
+                frames.append(prediction_frame(splits[split]["pairs"]["case_id"].astype(str), cohort_of[split], split,
                                                h[split], predict[split], names))
             pd.concat(frames, ignore_index=True).to_parquet(args.output_dir / "predictions" / f"cca-{label}_k{k}.parquet")
 
@@ -279,6 +315,14 @@ def main() -> None:
     spectrum.to_csv(args.output_dir / "spectrum.csv", index=False)
     intervals.to_csv(args.output_dir / "intervals.csv", index=False)
     site.to_csv(args.output_dir / "axis_site.csv", index=False)
+    # Structure coefficients of the slide side (BulkFormer CCA): corr(column, u_k) on TCGA train.
+    u_train = fits["bulkformer"][1]["train"][0]
+    xs = (x["train"] - x["train"].mean(0)) / (x["train"].std(0) + 1e-12)
+    us = (u_train - u_train.mean(0)) / u_train.std(0)
+    loadings = pd.DataFrame(xs.T @ us / len(xs), columns=[f"axis{k + 1}" for k in range(us.shape[1])])
+    loadings.insert(0, "column", columns if columns is not None else [f"d{j}" for j in range(xs.shape[1])])
+    check_ranges(loadings, [c for c in loadings.columns if c.startswith("axis")], -1, 1)
+    loadings.to_csv(args.output_dir / "slide_loadings.csv", index=False)
 
     maps = []
     for label in ("bulkformer",) if args.map_axes else ():
@@ -317,7 +361,7 @@ def main() -> None:
     n = {SPLIT_NAMES[s]: len(h[s]) for s in SPLITS}
     command = "uv run python -m xaiwsi.evaluation.cca_decomposition " + shlex.join(sys.argv[1:])
     text = (
-        f"Linear CCA, slide means (PCA {args.pca_dim}) vs BulkFormer (PCA {args.rna_dim}) or Hallmarks "
+        f"Linear CCA, slide side {args.features} (PCA {args.pca_dim}) vs BulkFormer (PCA {args.rna_dim}) or Hallmarks "
         f"(PCA {args.hallmark_dim}), fit on TCGA train; rho from TCGA val; n = {n}. r2 = squared Pearson "
         f"per Hallmark (median over the 50). Generated by:\n\n```bash\n{command}\n```\n\n"
         f"Canonical correlations (first 8 axes):\n\n{markdown_table(spectrum_md)}\n\n"

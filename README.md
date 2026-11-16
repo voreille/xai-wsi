@@ -1191,7 +1191,8 @@ about 380 training cases.
   concept-gated means for a few selected concepts.
 - **CCA of concept bags vs BulkFormer (2026-11-12; first part done 2026-11-16, progress 2f
   "Where the concept gain sits": `cca_decomposition --features bags:...`; the bag gain passes
-  through the first 5 RNA-shared axes; open: site share reading and the mucinous axis).** Same protocol as the slide-mean
+  through the first 5 RNA-shared axes; site share unchanged; the mucinous axis splits over bag axes
+  3–4, and single concepts c98/c508 (mucin-like) flag mucinous LUAD, CPTAC AUC 0.91).** Same protocol as the slide-mean
   CCA of 2c (`cca_decomposition`, `cca_hallmarks`, `cca_axis_labels`), with the slide side
   replaced by the clipped concept bag of the LUAD val-picked SAE (LUAD+LUSC k1024 top64).
   Fit on TCGA-train pairs; at test only the slide side is used, so it stays deployable.

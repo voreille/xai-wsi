@@ -1587,6 +1587,29 @@ Readings:
   separate result. The top tiles of c626/c255/c515 are the next thing to look at
   (`xaiwsi.concepts.viz`), and they belong in the pathologist review.
 
+Top tiles of the 13 prognostic concepts (8 most activated tiles per concept and cohort, at
+most one per slide; hazard ratios per SD from `per_feature.csv`):
+
+```bash
+uv run python -m xaiwsi.concepts.viz --config configs/training/pathway_cohorts.yaml \
+    --condition tcga-luad --sae tcga-luad+tcga-lusc_k1024_top64_s0 \
+    --survival-dir outputs/survival/luad_valpick --output-dir outputs/concept_viz/luad_valpick_survival
+```
+
+-> `outputs/concept_viz/luad_valpick_survival/{concepts.csv,tiles/survival.jpg}`. My reading
+of the tiles (not a pathologist's; for the review):
+- c515 (HR 1.30 TCGA, 1.50 CPTAC): loose, discohesive cells floating in air spaces, in both
+  cohorts. Spread through air spaces (STAS) and intra-alveolar macrophages look alike at this
+  size; STAS is a known adverse factor in LUAD, so this is the first question for the review.
+- c255 (1.28, 1.38): air spaces filled with macrophages, fibrin/haemorrhage and necrotic
+  debris.
+- c626 (1.25, 1.28): solid sheets of large pleomorphic tumour cells with prominent nucleoli.
+- c83 (1.29, 1.22, p 0.12): tumour cells in desmoplastic stroma.
+- c285, the protective one (0.70, 0.88): thin alveolar septa and vessels with red cells, i.e.
+  preserved lung or lepidic-like tissue.
+The panels are consistent within each concept across TCGA and CPTAC. Top tiles show the
+extreme of each concept, not its typical activation.
+
 ### Disk layout change (2026-11-13)
 
 `data/` now holds data only; fitted models and derived features moved out

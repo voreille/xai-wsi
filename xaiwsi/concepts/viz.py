@@ -5,6 +5,9 @@
    pathway the concepts with the largest positive and negative standardised coefficients
    are kept, with their training-split Spearman against that pathway. ``--site-concepts``
    adds the concepts with the highest TCGA-site F (``xaiwsi.evaluation.site_mask`` csv).
+   ``--survival-dir`` adds the concepts that pass FDR on the training split in the stage-adjusted
+   per-concept Cox of ``xaiwsi.evaluation.survival`` (its ``per_feature.csv``, columns by position), with their hazard
+   ratio per SD on train and on each test cohort.
 2. Top tiles: per concept, the most activated tiles of the training cohort and of each test
    cohort (per-tile codes from ``xaiwsi.concepts.bags``, at most one tile per slide), read from
    the WSIs.
@@ -137,9 +140,14 @@ def main() -> None:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--condition", required=True, help="one training cohort of the config")
     parser.add_argument("--sae", required=True, help="bag name under outputs/concept-bags/<store>/ (with tiles/)")
-    parser.add_argument("--pathways", nargs="+", required=True)
+    parser.add_argument("--pathways", nargs="*", default=[])
     parser.add_argument("--per-pathway", type=int, default=3, help="concepts per sign and pathway")
     parser.add_argument("--site-concepts", type=int, default=0)
+    parser.add_argument(
+        "--survival-dir", type=Path, default=None, help="xaiwsi.evaluation.survival output dir (per_feature.csv)"
+    )
+    parser.add_argument("--survival-features", default="concepts", help="features label in per_feature.csv")
+    parser.add_argument("--survival-fdr", type=float, default=0.1)
     parser.add_argument("--tiles", type=int, default=8, help="tiles per concept and cohort")
     parser.add_argument("--tile-size", type=int, default=112)
     parser.add_argument("--map-slides", type=int, default=2, help="slides per cohort in the maps")
@@ -151,6 +159,10 @@ def main() -> None:
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
+    if not args.pathways and args.survival_dir is None:
+        parser.error("give --pathways or --survival-dir")
+    if args.compare_slides and not args.pathways:
+        parser.error("--compare-slides needs --pathways")
     (args.output_dir / "tiles").mkdir(parents=True, exist_ok=True)
     (args.output_dir / "maps").mkdir(parents=True, exist_ok=True)
 
@@ -212,6 +224,19 @@ def main() -> None:
             rows.append({"group": "site", "sign": "", "rank": rank, "concept": concept_names.index(column),
                          "coef": np.nan, "train_spearman": np.nan,
                          "site_f": float(site.loc[site["column"] == column, "f"].iloc[0])})
+    if args.survival_dir is not None:
+        cox = pd.read_csv(args.survival_dir / "per_feature.csv")
+        cox = cox[cox["features"] == args.survival_features]
+        hits = cox[(cox["split"] == "train") & (cox["q_train"] < args.survival_fdr)].sort_values("p")
+        if hits.empty:
+            raise ValueError(f"no {args.survival_features} concept passes FDR {args.survival_fdr} in {args.survival_dir}")
+        for rank, hit in enumerate(hits.itertuples(), start=1):
+            tests = cox[(cox["split"] == "test") & (cox["column"] == hit.column)]
+            rows.append({"group": "survival", "sign": "+" if hit.log_hr > 0 else "-", "rank": rank,
+                         "concept": int(hit.column), "coef": np.nan, "train_spearman": np.nan,
+                         "hr_train": np.exp(hit.log_hr), "p_train": hit.p, "q_train": hit.q_train,
+                         **{f"hr_{t.cohort}": np.exp(t.log_hr) for t in tests.itertuples()},
+                         **{f"p_{t.cohort}": t.p for t in tests.itertuples()}})
     table = pd.DataFrame(rows)
     table["active_train"] = [(x_raw[:, k] > 0).mean() for k in table["concept"]]
     table.to_csv(args.output_dir / "concepts.csv", index=False)
@@ -226,7 +251,16 @@ def main() -> None:
         panel_rows = []
         for r in frame.itertuples():
             tag = f"{r.sign}{r.rank}" if r.sign else f"#{r.rank}"
-            detail = f"coef {r.coef:+.3f} rho {r.train_spearman:+.2f}" if group != "site" else f"site F {r.site_f:.1f}"
+            if group == "site":
+                detail = f"site F {r.site_f:.1f}"
+            elif group == "survival":
+                rd = frame.loc[r.Index]  # itertuples renames the hyphenated hr_<cohort> columns
+                tests = [k.removeprefix("hr_") for k in rd.index if k.startswith("hr_") and k != "hr_train"]
+                detail = f"HR {r.hr_train:.2f} q {r.q_train:.3f}" + "".join(
+                    f"\n{t}: HR {rd['hr_' + t]:.2f} p {rd['p_' + t]:.3f}" for t in tests
+                )
+            else:
+                detail = f"coef {r.coef:+.3f} rho {r.train_spearman:+.2f}"
             for name, c in cohorts.items():
                 tiles = read_tiles(best[name][r.concept], c["embedding_dir"], c["slides_root"], args.tile_size)
                 panel_rows.append((f"c{r.concept} {tag}\n{detail}\n{name}", tiles))

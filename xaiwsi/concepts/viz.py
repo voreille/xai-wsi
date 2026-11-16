@@ -7,7 +7,8 @@
    adds the concepts with the highest TCGA-site F (``xaiwsi.evaluation.site_mask`` csv).
    ``--survival-dir`` adds the concepts that pass FDR on the training split in the stage-adjusted
    per-concept Cox of ``xaiwsi.evaluation.survival`` (its ``per_feature.csv``, columns by position), with their hazard
-   ratio per SD on train and on each test cohort.
+   ratio per SD on train and on each test cohort. ``--concepts`` adds a group of listed concept
+   indices (e.g. those loading on a CCA axis), shown as given.
 2. Top tiles: per concept, the most activated tiles of the training cohort and of each test
    cohort (per-tile codes from ``xaiwsi.concepts.bags``, at most one tile per slide), read from
    the WSIs.
@@ -148,6 +149,8 @@ def main() -> None:
     )
     parser.add_argument("--survival-features", default="concepts", help="features label in per_feature.csv")
     parser.add_argument("--survival-fdr", type=float, default=0.1)
+    parser.add_argument("--concepts", type=int, nargs="*", default=[], help="concept indices shown as one group")
+    parser.add_argument("--concepts-group", default="listed", help="name of the --concepts group (tile file name)")
     parser.add_argument("--tiles", type=int, default=8, help="tiles per concept and cohort")
     parser.add_argument("--tile-size", type=int, default=112)
     parser.add_argument("--map-slides", type=int, default=2, help="slides per cohort in the maps")
@@ -159,8 +162,8 @@ def main() -> None:
     )
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
-    if not args.pathways and args.survival_dir is None:
-        parser.error("give --pathways or --survival-dir")
+    if not args.pathways and args.survival_dir is None and not args.concepts:
+        parser.error("give --pathways, --survival-dir or --concepts")
     if args.compare_slides and not args.pathways:
         parser.error("--compare-slides needs --pathways")
     (args.output_dir / "tiles").mkdir(parents=True, exist_ok=True)
@@ -237,6 +240,9 @@ def main() -> None:
                          "hr_train": np.exp(hit.log_hr), "p_train": hit.p, "q_train": hit.q_train,
                          **{f"hr_{t.cohort}": np.exp(t.log_hr) for t in tests.itertuples()},
                          **{f"p_{t.cohort}": t.p for t in tests.itertuples()}})
+    for rank, k in enumerate(args.concepts, start=1):
+        rows.append({"group": args.concepts_group, "sign": "", "rank": rank, "concept": k,
+                     "coef": np.nan, "train_spearman": np.nan})
     table = pd.DataFrame(rows)
     table["active_train"] = [(x_raw[:, k] > 0).mean() for k in table["concept"]]
     table.to_csv(args.output_dir / "concepts.csv", index=False)
@@ -251,7 +257,9 @@ def main() -> None:
         panel_rows = []
         for r in frame.itertuples():
             tag = f"{r.sign}{r.rank}" if r.sign else f"#{r.rank}"
-            if group == "site":
+            if group == args.concepts_group:
+                detail = f"active on {r.active_train:.0%} of train slides"
+            elif group == "site":
                 detail = f"site F {r.site_f:.1f}"
             elif group == "survival":
                 rd = frame.loc[r.Index]  # itertuples renames the hyphenated hr_<cohort> columns

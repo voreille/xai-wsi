@@ -38,7 +38,7 @@ def encoder_settings(encoder: str, root: Path, name: str) -> dict:
         train = json.loads((root / name / "train.json").read_text())
         settings = train["settings"]
         return {"sae": name, "train_cohorts": "+".join(train["train_cohorts"]), "latents": settings["latents"],
-                "k": settings["k"], "whiten_eps": settings.get("whiten_eps"), "seed": settings["seed"],
+                "k": settings["k"], "whiten_eps": settings.get("whiten_eps") or 0.0, "seed": settings["seed"],
                 "val_fvu": train["final"]["val_fvu"]}
     settings = json.loads((root / name / "prototypes.json").read_text())["settings"]
     return {"panther": name, "train_cohorts": "+".join(settings["train_cohorts"]),
@@ -102,6 +102,9 @@ def main() -> None:
         raise SystemExit("No rows left after --bags/--preps/--seeds")
     index = list(settings) + ["bag", "prep", "probe"]
     wide = long.pivot_table(index=index, columns="key", values=["median_spearman", "median_r2"])
+    # pivot_table silently drops index rows with NaN (e.g. a missing setting); fail instead.
+    if len(wide) != len(long[index].drop_duplicates()):
+        raise ValueError(f"{len(long[index].drop_duplicates()) - len(wide)} runs lost in the pivot (NaN settings?)")
     wide.columns = [f"{metric} {key}" for metric, key in wide.columns]
     wide = wide.reset_index()
     first = base.drop_duplicates("key").set_index("key")

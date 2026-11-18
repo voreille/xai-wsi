@@ -68,15 +68,16 @@ def grid_cells(coords: np.ndarray, step: int) -> tuple[np.ndarray, np.ndarray]:
     return cells, origin
 
 
-def token_positions(cells: np.ndarray) -> np.ndarray:
-    """Index of each tile's token in TITAN's sequence (class token at 0, then occupied grid cells
-    in row-major order of (column 0, column 1))."""
+def token_positions(cells: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """(index of each tile's token in TITAN's sequence, number of tiles sharing that token). The
+    class token is at 0, then occupied grid cells in row-major order of (column 0, column 1).
+    Tiles of different tissue contours sit on grids with different origins, so a few can fall
+    into one cell; ``preprocess_features`` sums their features into one token, and here they
+    share it."""
     width = int(cells[:, 1].max()) + 1
     flat = cells[:, 0] * width + cells[:, 1]
-    occupied = np.unique(flat)
-    if len(occupied) != len(flat):
-        raise ValueError(f"{len(flat) - len(occupied)} tiles share a TITAN grid cell")
-    return np.searchsorted(occupied, flat) + 1
+    occupied, inverse, counts = np.unique(flat, return_inverse=True, return_counts=True)
+    return inverse + 1, counts[inverse]
 
 
 @torch.no_grad()
@@ -258,11 +259,14 @@ def main() -> None:
         tiles, coords, attrs = store.load(slide_id)
         step = patch_size_lv0(attrs)
         cells, origin = grid_cells(coords, step)
-        positions = token_positions(cells)
+        positions, shared = token_positions(cells)
         result = decompose(model, tiles, coords, step, weights, device)
+        # A shared token's attention and contribution are split equally over its tiles, so the
+        # per-tile values still sum to the token totals (and the logits).
         per_tile = {
-            "attention": result["attention"][positions],
-            "contrib": result["contrib"][positions],
+            "attention": result["attention"][positions] / shared,
+            "contrib": result["contrib"][positions] / shared[:, None],
+            "shared": shared,
             "cls": result["contrib"][0],
             "bias": result["bias"],
             "logits": result["logits"],

@@ -1,0 +1,12 @@
+# Overlay for pathway_cohorts.yaml: gated-attention MIL (ABMIL, Ilse et al. 2018) instead of
+# the plain tile mean; same backbone width and dropout as the tile MLP and the gated model.
+# Use as a second --config (scripts/supervised_baseline.sh).
+model:
+  predictor:
+    class_path: xaiwsi.models.pathway.ABMILMean
+    init_args:
+      input_dim: 1536
+      hidden_dim: 128
+      output_dim: 50
+      attention_dim: 128
+      dropout: 0.2

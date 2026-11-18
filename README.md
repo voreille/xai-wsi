@@ -527,6 +527,7 @@ The current pure-PyTorch pathway predictors include:
 TileLinearMean
 TileMLPMean
 TileMLPGatedMean
+ABMILMean
 MeanMLP
 ```
 
@@ -567,6 +568,23 @@ The exact contribution of tile `i` to pathway `k` is:
 ```text
 tile_weights[i] * tile_scores[i, k]
 ```
+
+### `ABMILMean`
+
+Gated attention MIL (Ilse et al. 2018), the supervised MIL baseline of the 2f paper table
+(`configs/training/overrides/abmil.yaml`, `scripts/supervised_baseline.sh`):
+
+```text
+tile embedding
+→ shared MLP → h_i
+→ attention logit w·(tanh(V h_i) ⊙ sigmoid(U h_i))
+→ softmax over tiles → tile_weights
+→ weighted sum of h_i → linear head → 50 slide-level predictions
+```
+
+It returns `pred`, `tile_scores` (the linear head applied to each `h_i`) and
+`tile_weights`, without `tile_gates`. Because the head is linear and the weights sum to one,
+the same contribution formula holds exactly.
 
 ### `MeanMLP`
 

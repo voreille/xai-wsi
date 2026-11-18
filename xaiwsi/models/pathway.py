@@ -99,6 +99,71 @@ class TileMLPGatedMean(PathwayPredictor):
         }
 
 
+class ABMILMean(PathwayPredictor):
+    """Gated attention MIL (Ilse et al. 2018): softmax attention over tiles pools the tile
+    embeddings, then one linear head predicts the pathways.
+
+    Because the head is linear and the weights sum to one, the pooled prediction equals the
+    attention-weighted mean of per-tile predictions, so ``tile_scores`` are the head applied
+    to each tile and the ``tile_weights`` invariant holds exactly.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        output_dim: int,
+        attention_dim: int = 128,
+        dropout: float = 0.0,
+        tile_dropout: float = 0.0,
+    ):
+        super().__init__()
+
+        if not 0.0 <= tile_dropout < 1.0:
+            raise ValueError("tile_dropout must be in [0, 1).")
+
+        self.tile_dropout = tile_dropout
+
+        self.backbone = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+        )
+        self.attention_v = nn.Linear(hidden_dim, attention_dim)
+        self.attention_u = nn.Linear(hidden_dim, attention_dim)
+        self.attention_w = nn.Linear(attention_dim, 1)
+        self.head = nn.Linear(hidden_dim, output_dim)
+
+    def forward(
+        self,
+        embeddings: torch.Tensor,
+        coords: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor]:
+        # B x N x D; same random tile subset per step as TileMLPGatedMean.
+        if self.training and self.tile_dropout > 0.0:
+            n_tiles = embeddings.shape[1]
+            n_keep = max(1, round(n_tiles * (1.0 - self.tile_dropout)))
+            keep = torch.randperm(n_tiles, device=embeddings.device)[:n_keep]
+            embeddings = embeddings[:, keep]
+
+        h = self.backbone(embeddings)
+
+        # B x N x 1
+        logits = self.attention_w(
+            torch.tanh(self.attention_v(h)) * torch.sigmoid(self.attention_u(h))
+        )
+        tile_weights = torch.softmax(logits, dim=1)
+
+        # B x P
+        pred = self.head((tile_weights * h).sum(dim=1))
+
+        return {
+            "pred": pred,
+            "tile_scores": self.head(h),
+            "tile_weights": tile_weights,
+        }
+
+
 class TileLinearMean(PathwayPredictor):
     """Apply a linear predictor per tile, then mean-pool predictions."""
 

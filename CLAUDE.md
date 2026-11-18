@@ -98,7 +98,7 @@ What this means for code written now:
 - `xaiwsi/data/cohorts.py`: `CohortSpec` (paths from `<processed_root>/<name>/`), per-cohort
   or pooled z-score targets, `build_pathway_splits` (shared by the data module and probes).
 - `xaiwsi/models/pathway.py`: `PathwayPredictor` subclasses (`TileLinearMean`,
-  `TileMLPMean`, `TileMLPGatedMean`, `MeanMLP`). `xaiwsi/models/nca.py`: `TileNCAMean`, a
+  `TileMLPMean`, `TileMLPGatedMean`, `ABMILMean`, `MeanMLP`). `xaiwsi/models/nca.py`: `TileNCAMean`, a
   neural cellular automaton on the tile grid (fixed PCA projection from `xaiwsi.data.tile_pca`).
 - `xaiwsi/tissue/`: linear tile-composition probes (IGNITE classes, ANORAK patterns) on the
   frozen tile embeddings, applied per tile to `<cohort dir>/tissue/<store>/<probe>/`; `features.py`
@@ -143,8 +143,8 @@ uv run python -m xaiwsi.visualization.pathways --config ... --checkpoint ... \
 - Predictors take `B x N x D` tile embeddings and optional `coords` (`B x N x 2` integer
   tile-grid positions from `xaiwsi.data.pathway.tile_grid`, which the dataset returns; only
   spatial models use them) and return a dict with `pred`, plus
-  `tile_scores` (`None` for `MeanMLP`). Only the gated model also returns `tile_gates` and
-  `tile_weights`; the mean models imply uniform weights `1/N`. The visualization depends
+  `tile_scores` (`None` for `MeanMLP`). The gated model also returns `tile_gates` and
+  `tile_weights`, ABMIL `tile_weights` only; the mean models imply uniform weights `1/N`. The visualization depends
   on these keys. Invariant: `sum_i tile_weights[i] * tile_scores[i, k] == pred[k]`.
 - `RunSaveConfigCallback` writes the resolved `config.yaml` to
   `<save_dir>/<logger name>/<version>/`, next to `checkpoints/`. Downstream tools

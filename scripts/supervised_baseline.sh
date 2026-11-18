@@ -1,6 +1,6 @@
 #!/bin/bash
 # Supervised baseline for the 2f paper table: tile-level models trained end to end on the
-# Hallmarks (TileMLPMean, TileMLPGatedMean), against the slide-mean ridge and the SAE
+# Hallmarks (TileMLPMean, TileMLPGatedMean, ABMILMean), against the slide-mean ridge and the SAE
 # concept bags, with the same splits (split_seed 42), the same train-only per-cohort
 # z-scores and paired bootstraps on the same cases.
 #
@@ -8,6 +8,11 @@
 # LSCC side: new runs selected on TCGA-LUSC val (configs/training/overrides/select_lusc.yaml),
 #   conditions tcga-lusc and tcga-luad,tcga-lusc, ids coh-<LUSC_TAG>[gated]-<cond>-percohort-s<seed>.
 #   coh-1024-luad+lusc (selected on LUAD val) is kept as a second LSCC row.
+# ABMIL (gated attention MIL, configs/training/overrides/abmil.yaml), both sides, conditions
+#   tcga-<side> and tcga-luad,tcga-lusc: coh-<ABMIL_TAG>-<cond>-percohort-s<seed> (LUAD val)
+#   and coh-<ABMIL_TAG>lusc-<cond>-percohort-s<seed> (LUSC val).
+# FIT_MODELS picks the models to fit (tile, gated, abmil); fitting skips runs with a
+# checkpoint but re-tests them, so fit only what is new.
 #
 # Stages:
 #   fit        train + test the LSCC-side runs (scripts/pathway_cohorts.sh; skips existing)
@@ -15,10 +20,11 @@
 #   bootstrap  paired bootstraps -> $OUT/{vs_mean,sae_vs_supervised}_<cohort>.{md,csv}
 # Val numbers of the tile models are optimistic: their checkpoint is picked on that val.
 #
-# Timing (host, 2 GPUs): fit ~12 runs x 20-40 min; predict ~5 min per run.
+# Timing (host, 2 GPUs): fit 20-40 min per run (ABMIL: 12 runs); predict ~5 min per run.
 #
 # Usage (on the host, from the repo root):
 #   GPUS="0 1" bash scripts/supervised_baseline.sh
+#   FIT_MODELS=abmil GPUS="0 1" bash scripts/supervised_baseline.sh   # add the ABMIL rows
 #   STAGES=bootstrap SIDES=luad bash scripts/supervised_baseline.sh
 set -euo pipefail
 
@@ -27,6 +33,8 @@ SIDES=${SIDES:-"luad lscc"}
 SEEDS=${SEEDS:-"0 1 2"}
 GPUS=${GPUS:-"0"}
 LUSC_TAG=${LUSC_TAG:-1112lusc}
+ABMIL_TAG=${ABMIL_TAG:-1118abmil}
+FIT_MODELS=${FIT_MODELS:-"tile gated abmil"}
 RUN_ROOT=${RUN_ROOT:-runs/pathways/xai-wsi}
 OUT=${OUT:-outputs/supervised_baseline}
 LUSC_CONDITIONS="tcga-lusc tcga-luad,tcga-lusc"
@@ -34,18 +42,29 @@ LUSC_CONDITIONS="tcga-lusc tcga-luad,tcga-lusc"
 mkdir -p "$OUT"
 first_gpu=${GPUS%% *}
 
-if [[ " $STAGES " == *" fit "* && " $SIDES " == *" lscc "* ]]; then
-    for model in tile gated; do
-        extra="--config configs/training/overrides/select_lusc.yaml"
-        tag=$LUSC_TAG
-        if [[ $model == gated ]]; then
-            extra="--config configs/training/overrides/gated.yaml $extra"
-            tag=${LUSC_TAG}gated
+fit_family() {  # conditions tag extra-args
+    CONDITIONS="$1" SEEDS="$SEEDS" GPUS="$GPUS" TAG="$2" RUN_ROOT="$RUN_ROOT" \
+        NORMALIZATIONS=per_cohort STAGES=tiles EXTRA_ARGS="$3" \
+        LOG_DIR="$OUT/logs" \
+        bash scripts/pathway_cohorts.sh
+}
+
+if [[ " $STAGES " == *" fit "* ]]; then
+    for model in $FIT_MODELS; do
+        case $model in
+            tile)  overlay="" ; lusc_tag=$LUSC_TAG ;;
+            gated) overlay="--config configs/training/overrides/gated.yaml" ; lusc_tag=${LUSC_TAG}gated ;;
+            abmil) overlay="--config configs/training/overrides/abmil.yaml" ; lusc_tag=${ABMIL_TAG}lusc ;;
+            *) echo "unknown model '$model' in FIT_MODELS" >&2; exit 2 ;;
+        esac
+        if [[ " $SIDES " == *" lscc "* ]]; then
+            fit_family "$LUSC_CONDITIONS" "$lusc_tag" \
+                "$overlay --config configs/training/overrides/select_lusc.yaml"
         fi
-        CONDITIONS="$LUSC_CONDITIONS" SEEDS="$SEEDS" GPUS="$GPUS" TAG="$tag" RUN_ROOT="$RUN_ROOT" \
-            NORMALIZATIONS=per_cohort STAGES=tiles EXTRA_ARGS="$extra" \
-            LOG_DIR="$OUT/logs" \
-            bash scripts/pathway_cohorts.sh
+        # The LUAD-side tile and gated runs predate this script (coh-1024, coh-1105gated).
+        if [[ $model == abmil && " $SIDES " == *" luad "* ]]; then
+            fit_family "tcga-luad tcga-luad,tcga-lusc" "$ABMIL_TAG" "$overlay"
+        fi
     done
 fi
 
@@ -54,6 +73,8 @@ luad_runs=(
     "tilemlp-luad=coh-1024-luad-percohort"
     "tilemlp-luad+lusc=coh-1024-luad+lusc-percohort"
     "gated-luad=coh-1105gated-luad-percohort"
+    "abmil-luad=coh-${ABMIL_TAG}-luad-percohort"
+    "abmil-luad+lusc=coh-${ABMIL_TAG}-luad+lusc-percohort"
 )
 lscc_runs=(
     "tilemlp-lusc=coh-${LUSC_TAG}-lusc-percohort"
@@ -61,6 +82,8 @@ lscc_runs=(
     "gated-lusc=coh-${LUSC_TAG}gated-lusc-percohort"
     "gated-luad+lusc=coh-${LUSC_TAG}gated-luad+lusc-percohort"
     "tilemlp-luad+lusc-selLUAD=coh-1024-luad+lusc-percohort"
+    "abmil-lusc=coh-${ABMIL_TAG}lusc-lusc-percohort"
+    "abmil-luad+lusc=coh-${ABMIL_TAG}lusc-luad+lusc-percohort"
 )
 
 if [[ " $STAGES " == *" predict "* ]]; then

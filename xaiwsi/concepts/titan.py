@@ -43,6 +43,35 @@ def load_titan(device: torch.device) -> torch.nn.Module:
     return AutoModel.from_pretrained(REPO, trust_remote_code=True).to(device).eval()
 
 
+def load_prompts(path: Path) -> tuple[list[str], list[list[str]], list[str]]:
+    """(class labels, class names per class, templates) from a zero-shot prompt YAML
+    (``configs/zeroshot/*.yaml``: ``templates`` with ``CLASSNAME``, ``classes: {label: [names]}``)."""
+    import yaml
+
+    spec = yaml.safe_load(Path(path).read_text())
+    templates = list(spec["templates"])
+    if not all("CLASSNAME" in t for t in templates):
+        raise SystemExit(f"{path}: every template needs CLASSNAME")
+    labels = list(spec["classes"])
+    return labels, [list(spec["classes"][label]) for label in labels], templates
+
+
+def text_classifier(model: torch.nn.Module, path: Path, device: torch.device) -> tuple[list[str], torch.Tensor]:
+    """Class labels and TITAN's zero-shot weights (embedding dim x classes, unit columns): the
+    mean normalized text embedding over a class's names and the templates (``zero_shot_classifier``)."""
+    labels, names, templates = load_prompts(path)
+    with torch.inference_mode():
+        weights = model.zero_shot_classifier(names, templates, device=device)
+    return labels, weights.float()
+
+
+def zero_shot_logits(model: torch.nn.Module, slide_embeddings: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+    """Cosine of the projected slide embeddings (``slides.parquet``, before ``proj``) with each class,
+    as in ``Titan.zero_shot`` (which softmaxes these without a temperature)."""
+    projected = slide_embeddings.float() @ model.vision_encoder.proj.float()
+    return torch.nn.functional.normalize(projected, dim=-1) @ weights
+
+
 def patch_size_lv0(attrs: dict) -> int:
     """Tile grid step in level-0 pixels (coords are level 0)."""
     if attrs.get("coord_space", "level0") != "level0":

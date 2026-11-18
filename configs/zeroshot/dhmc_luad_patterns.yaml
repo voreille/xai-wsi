@@ -1,0 +1,68 @@
+# Zero-shot prompts for the predominant LUAD pattern (DHMC-LUAD, 5 classes) with TITAN
+# (xaiwsi.evaluation.titan_zeroshot, xaiwsi.visualization.titan_maps).
+#
+# templates: the 23 slide-classification templates of the TITAN paper, verbatim (Ding et al.,
+#   Nat Med 2025, Supplementary Table 90, including its "a microscopic image of showing").
+# classes: OUR class names. The paper reports zero-shot DHMC-LUAD (Supplementary Table 103:
+#   balanced accuracy 0.585 ± 0.020, weighted F1 0.489, AUROC 0.859) but does not publish its
+#   class names for this task, so results are not an exact reproduction. Written once on
+#   2026-11-18 before any DHMC score was computed, with the same five forms for every pattern
+#   (no per-class wording), in the style of the paper's NSCLC/BRCA lists (Suppl. Table 91).
+#   Do not tune them on DHMC labels.
+templates:
+  - "CLASSNAME."
+  - "an image of CLASSNAME."
+  - "the image shows CLASSNAME."
+  - "the image displays CLASSNAME."
+  - "the image exhibits CLASSNAME."
+  - "an example of CLASSNAME."
+  - "CLASSNAME is shown."
+  - "this is CLASSNAME."
+  - "I observe CLASSNAME."
+  - "the pathology image shows CLASSNAME."
+  - "a pathology image shows CLASSNAME."
+  - "the pathology slide shows CLASSNAME."
+  - "shows CLASSNAME."
+  - "contains CLASSNAME."
+  - "presence of CLASSNAME."
+  - "CLASSNAME is present."
+  - "CLASSNAME is observed."
+  - "the pathology image reveals CLASSNAME."
+  - "a microscopic image of showing CLASSNAME."
+  - "histology shows CLASSNAME."
+  - "CLASSNAME can be seen."
+  - "the tissue shows CLASSNAME."
+  - "CLASSNAME is identified."
+# Label column values (data/processed/dhmc-luad/metadata/growth_patterns.csv) -> class names.
+# Order: low to high grade (IASLC), also the colour order of the maps.
+classes:
+  lepidic:
+    - lepidic adenocarcinoma
+    - lepidic predominant adenocarcinoma
+    - lung adenocarcinoma, lepidic pattern
+    - lepidic predominant lung adenocarcinoma
+    - adenocarcinoma with lepidic growth pattern
+  acinar:
+    - acinar adenocarcinoma
+    - acinar predominant adenocarcinoma
+    - lung adenocarcinoma, acinar pattern
+    - acinar predominant lung adenocarcinoma
+    - adenocarcinoma with acinar growth pattern
+  papillary:
+    - papillary adenocarcinoma
+    - papillary predominant adenocarcinoma
+    - lung adenocarcinoma, papillary pattern
+    - papillary predominant lung adenocarcinoma
+    - adenocarcinoma with papillary growth pattern
+  micropapillary:
+    - micropapillary adenocarcinoma
+    - micropapillary predominant adenocarcinoma
+    - lung adenocarcinoma, micropapillary pattern
+    - micropapillary predominant lung adenocarcinoma
+    - adenocarcinoma with micropapillary growth pattern
+  solid:
+    - solid adenocarcinoma
+    - solid predominant adenocarcinoma
+    - lung adenocarcinoma, solid pattern
+    - solid predominant lung adenocarcinoma
+    - adenocarcinoma with solid growth pattern

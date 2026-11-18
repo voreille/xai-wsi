@@ -46,6 +46,9 @@ class CohortSpec:
     # Training cohorts: keep at most this many training-split cases (random subset,
     # seeded by train_subset_seed). Val stays whole. Compares cohorts at equal size.
     max_train_cases: int | None = None
+    # "case": first slide of the case. "specimen": a slide of the RNA sample's own block when
+    # there is one (metadata/slide_specimens.csv, xaiwsi.preprocessing.cptac.slide_specimens).
+    pairing: Literal["case", "specimen"] = "case"
     rna_dir: str | None = None
     wsi_metadata: str | None = None
     embedding_dir: str | None = None
@@ -73,6 +76,9 @@ class CohortSpec:
             slides_root_dir=Path(self.slides_root_dir) if self.slides_root_dir else None,
             zscore_reference=self.zscore_reference,
             max_train_cases=self.max_train_cases,
+            slide_specimens=(
+                path(None, "metadata/slide_specimens.csv") if self.pairing == "specimen" else None
+            ),
         )
 
 
@@ -85,6 +91,7 @@ class ResolvedCohort:
     slides_root_dir: Path | None
     zscore_reference: str | None
     max_train_cases: int | None = None
+    slide_specimens: Path | None = None
 
 
 @dataclass
@@ -142,6 +149,7 @@ def load_cohort(cohort: ResolvedCohort) -> LoadedCohort:
         pd.read_csv(cohort.wsi_metadata),
         pd.read_csv(cohort.rna_dir / "samples.csv"),
         expression,
+        pd.read_csv(cohort.slide_specimens) if cohort.slide_specimens else None,
     )
     print(f"[{cohort.name}] paired cases: {len(pairs)}")
     return LoadedCohort(cohort=cohort, store=store, expression=expression, pairs=pairs)

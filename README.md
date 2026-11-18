@@ -338,6 +338,24 @@ C3N-04176), and 2 others would switch to the recovered slide (first slide by ID)
   CPTAC-LUAD test n 213 → 217, so every LUAD-side result has to be rerun: do it once, with the
   per-slide overrides kept in a versioned file (wsi-tools TODO), for both tile encoders.
 
+**TODO (after the 4 Dec deadline, with the rerun above): CPTAC pairing by tissue block.** CPTAC
+slides and RNA come from named specimens (slide `C3L-03262-21` ↔ specimen and RNA sample
+`C3L-03262-01`; `metadata/slide_specimens.csv`, built by `xaiwsi.preprocessing.cptac.slide_specimens`
+from the TCIA pathology tables). Case-level pairing takes the first slide by ID, which is the RNA's
+own block for only 87 of 213 CPTAC-LUAD test cases. `CohortSpec(pairing="specimen")` (or
+`cohort_probe --test-pairing specimen`) prefers the own-block slide and keeps the RNA sample, so
+targets are unchanged; first check on the ridge probes in `outputs/specimen_pairing/`
+(progress.md). Make it the CPTAC default in the one rerun, for all models.
+
+**TODO (after the deadline): normal tissue.** CPTAC has normal-tissue RNA for 215 LUAD cases
+("Solid Tissue Normal"; `rna_samples.csv` lists each GDC file twice, once per portion record) and
+380 normal-tissue slides (`slide_specimens.csv`, `specimen_type` normal_tissue), with an
+own-block slide for 214 of the 215 normal RNA samples; same for LSCC (384 normal slides). None of
+it is tiled (the slide list has tumour slides only) and `rna/samples.csv` keeps Primary Tumor only.
+Tile and embed the normal slides on the host, then test the TCGA-trained probes on normal tissue
+(a further shift: TCGA training is tumour only): do predictions still rank cases, and do the
+predicted tumour − normal differences follow the RNA ones?
+
 ## Embedding extraction
 
 ### Repacked fp16 stores

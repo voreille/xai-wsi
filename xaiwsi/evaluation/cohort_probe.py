@@ -43,6 +43,7 @@ import argparse
 import re
 import shlex
 import sys
+from dataclasses import replace
 from itertools import product
 from pathlib import Path
 
@@ -312,6 +313,12 @@ def main() -> None:
     parser.add_argument(
         "--composition-spec", type=Path, default=Path("configs/tissue/composition_features.yaml")
     )
+    parser.add_argument(
+        "--test-pairing",
+        choices=["case", "specimen"],
+        help="override the test cohorts' slide pairing (specimen: the RNA sample's own block when "
+        "tiled, else the first slide; needs metadata/slide_specimens.csv); writes test_pairs_<cohort>.csv",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -335,6 +342,8 @@ def main() -> None:
     processed_root, embedding = data.get("processed_root"), data.get("embedding", "h-optimus-1")
     train_specs = [CohortSpec(**spec) for spec in data["train_cohorts"]]
     test_specs = [CohortSpec(**spec) for spec in data["test_cohorts"]]
+    if args.test_pairing:
+        test_specs = [replace(spec, pairing=args.test_pairing) for spec in test_specs]
 
     for features in args.features:
         for block in feature_blocks(features):
@@ -356,6 +365,10 @@ def main() -> None:
                 split_seed=data.get("split_seed", 42),
                 target_normalization=normalization,
             )
+
+            if args.test_pairing:
+                for part in splits["test"]:
+                    part.pairs.to_csv(args.output_dir / f"test_pairs_{part.cohort}.csv", index=False)
 
             # One cache per cohort and store, covering all its paired slides.
             means, shares, tables = {}, {}, {}

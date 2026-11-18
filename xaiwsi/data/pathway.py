@@ -26,8 +26,17 @@ def build_case_pairs(
     wsi_metadata: pd.DataFrame,
     rna_samples: pd.DataFrame,
     expression: pd.DataFrame,
+    slide_specimens: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Build one slide / one RNA sample per case for the first baseline."""
+    """Build one slide / one RNA sample per case for the first baseline.
+
+    The RNA sample is the case's first by ``sample_id``. The slide is the case's first by
+    ``slide_id``, unless ``slide_specimens`` (``slide_id``, ``sample_id``: the block each slide
+    was cut from) is given: then a slide of the RNA sample's own block is preferred, with the
+    first slide as fallback, and the pairs get ``same_block`` and ``slide_changed`` (not the
+    case's first slide) columns. The RNA choice, hence
+    the targets, is the same either way.
+    """
     available_slides = set(embedding_store.slide_ids())
 
     wsi = wsi_metadata[wsi_metadata["slide_id"].isin(available_slides)].copy()
@@ -40,21 +49,36 @@ def build_case_pairs(
     print("Cases with multiple RNA samples:", int((rna_per_case > 1).sum()))
 
     # Temporary deterministic baseline behavior.
-    wsi = (
-        wsi.sort_values(["case_id", "slide_id"])
-        .drop_duplicates("case_id", keep="first")
-    )
     rna = (
         rna.sort_values(["case_id", "sample_id"])
         .drop_duplicates("case_id", keep="first")
     )
+    columns = ["case_id", "slide_id"]
+    if slide_specimens is not None:
+        block = dict(zip(slide_specimens["slide_id"].astype(str), slide_specimens["sample_id"].astype(str)))
+        rna_of_case = dict(zip(rna["case_id"], rna["sample_id"].astype(str)))
+        wsi["same_block"] = [
+            block.get(str(s)) == rna_of_case.get(c) for s, c in zip(wsi["slide_id"], wsi["case_id"])
+        ]
+        first = wsi.sort_values(["case_id", "slide_id"]).drop_duplicates("case_id").set_index("case_id")["slide_id"]
+        wsi["slide_changed"] = wsi["slide_id"].to_numpy() != first.loc[wsi["case_id"]].to_numpy()
+        wsi = wsi.sort_values(["case_id", "same_block", "slide_id"], ascending=[True, False, True])
+        columns += ["same_block", "slide_changed"]
+    else:
+        wsi = wsi.sort_values(["case_id", "slide_id"])
+    wsi = wsi.drop_duplicates("case_id", keep="first")
 
-    pairs = wsi[["case_id", "slide_id"]].merge(
+    pairs = wsi[columns].merge(
         rna[["case_id", "sample_id"]],
         on="case_id",
         how="inner",
         validate="one_to_one",
     )
+    if slide_specimens is not None:
+        print(
+            f"Pairs from the RNA sample's own block: {int(pairs['same_block'].sum())} of {len(pairs)}, "
+            f"slide changed from the first slide: {int(pairs['slide_changed'].sum())}"
+        )
     return pairs.sort_values("case_id").reset_index(drop=True)
 
 
